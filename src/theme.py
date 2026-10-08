@@ -80,8 +80,10 @@ def apply_theme(widget, accent):
                                 bd=0, cursor="hand2")
                 if not getattr(child, "_et_hover_installed", False):
                     child._et_hover_installed = True
-                    def on_enter(event, button=child, colour=accent):
+                    def on_enter(event, button=child):
                         if str(button.cget("state")) != "disabled":
+                            from database import get_setting
+                            colour = get_setting("accent_color", DEFAULT_ACCENT)
                             button.configure(bg=colour, fg="white")
                     def on_leave(event, button=child):
                         if str(button.cget("state")) != "disabled":

@@ -4,6 +4,7 @@ from window_style import install as polish_dialog
 import io
 import threading
 import uuid
+from media_naming import clean_name
 import urllib.request
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -62,7 +63,10 @@ def store(kind, item_id, raw, w, h, ext, source, set_cover=True):
     if kind not in CATEGORIES: raise ValueError('Unknown category')
     folder = ART_ROOT / kind
     folder.mkdir(parents=True, exist_ok=True)
-    target = folder / f'{item_id}_{uuid.uuid4().hex}{ext}'
+    title_row = connection.execute(f'SELECT name FROM {kind} WHERE id=?', (item_id,)).fetchone()
+    title = clean_name(title_row[0] if title_row else f'{kind} {item_id}')
+    role = 'Cover' if set_cover else 'Artwork'
+    target = folder / f'{title} - {role} - {uuid.uuid4().hex[:8]}{ext}'
     target.write_bytes(raw)
     rel = target.relative_to(PROJECT_ROOT).as_posix()
     try:

@@ -3,6 +3,7 @@ from window_style import install as polish_dialog
 
 from pathlib import Path
 import shutil
+from media_naming import clean_name
 import tkinter as tk
 from tkinter import filedialog
 from database import PROJECT_ROOT, connection, cursor
@@ -100,7 +101,9 @@ class GameGallery(tk.Frame):
                 cursor.execute("INSERT INTO game_screenshots(game_id, image_path) "
                                "VALUES (?, '')", (self.game_id,))
                 shot_id = cursor.lastrowid
-                destination = SCREENSHOTS_ROOT / f"{self.game_id}_{shot_id}{source.suffix.lower()}"
+                row = connection.execute("SELECT name FROM games WHERE id=?", (self.game_id,)).fetchone()
+                title = clean_name(row[0] if row else f"Game {self.game_id}")
+                destination = SCREENSHOTS_ROOT / f"{title} - Screenshot {shot_id:02d}{source.suffix.lower()}"
                 shutil.copy2(source, destination)
                 cursor.execute("UPDATE game_screenshots SET image_path=? WHERE id=?",
                                (destination.relative_to(PROJECT_ROOT).as_posix(), shot_id))

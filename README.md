@@ -1,4 +1,4 @@
-# Entertainment Tracker
+# Entertainment Tracker v19
 
 A personal, non-commercial Windows desktop application built with Python.
 
@@ -32,3 +32,25 @@ This product uses the TMDB API but is not endorsed or certified by TMDB.
 The app creates its local `data/entertainment.db` database automatically when launched. Local databases and downloaded artwork are intentionally not included in the public repository. Keep backups of your personal library before updating the application.
 
 Optional process-based game tracking uses `psutil` (install with `python -m pip install psutil`).
+
+## v19 — Data Safety & Reliability Update
+
+This release publishes the completed Phase 1 version, Windows-tested by the maintainer.
+
+- Portable ZIP backups include the SQLite database and locally stored artwork. Manual backups and automatic backups (at most once per UTC day) are available; the newest 10 standard backups are retained.
+- Backup restore validates ZIP paths, ZIP integrity and SQLite integrity, queues restoration for the next launch, and creates a pre-restore safety archive.
+- A read-only offline audit reports saved descriptions, missing media, remote-only images and files outside the application folder.
+- Existing local media can be previewed and renamed to descriptive, Windows-safe filenames. Renaming creates a safety backup, updates database references in a transaction and reverses file moves on failure.
+- Conservative unused-media scanning protects referenced and uncertain files. Selected unused images move to `media_quarantine/` after a safety backup; they are never permanently deleted. To recover quarantined files, close the app and move them back to their original locations.
+
+### Updating safely
+
+Back up your existing installation before replacing application source files. Preserve your local `data/`, `assets/`, `backups/` and `media_quarantine/` folders. Launch the app normally after updating. Portable backups include local assets, but do not automatically copy artwork referenced by external paths or URLs.
+
+### Privacy
+
+The public repository and GitHub-generated source archives contain no personal databases, backups, downloaded artwork collections, saved API credentials or cache files. Supply any required TMDB token locally. Keep your private collection and recovery archives out of Git.
+
+### Validation
+
+The attached completed Phase 1 build was Windows-tested by the maintainer. Publication checks verify Python syntax and source-file identity; they do not repeat Windows GUI testing.
