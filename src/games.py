@@ -10,7 +10,7 @@ from database import connection, cursor
 from utils import format_time, parse_time
 
 
-def open_games(parent, on_open_detail=None, initial_edit_id=None):
+def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_library=False):
 
     games_window = tk.Frame(parent)
     games_window.pack(fill="both", expand=True)
@@ -470,12 +470,15 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
         cover_menu=tk.Menu(cover_button,tearoff=False,bg=PANEL_ALT,fg=TEXT)
         cover_button.configure(menu=cover_menu)
         def update_staged_info():
-            cover=pending['cover']
-            text=f"{len(pending['metadata'])} metadata fields staged" if pending['metadata'] else 'Manual entry'
-            staged_info.set(text+(' · Cover selected' if cover else ' · No cover selected')+
-                            f" · {len(pending['extras'])} extra images"+(' · Cover protected' if cover and protect_cover.get() else ''))
-            staged_info.set(staged_info.get()+'\nBackground: '+('selected' if pending['roles']['background_path'] else 'none')+
-                            ' · Logo: '+('selected' if pending['roles']['logo_path'] else 'none'))
+            statuses=[]
+            for name,image,var,key in (
+                ('Cover',pending['cover'],protect_cover,'cover_path'),
+                ('Background',pending['roles']['background_path'],protect_roles['background_path'],'background_path'),
+                ('Logo',pending['roles']['logo_path'],protect_roles['logo_path'],'logo_path')):
+                protected=var.get() or (game_id is not None and is_locked('games',game_id,key))
+                statuses.append(name+': '+('protected' if image and protected else 'selected' if image else 'none'))
+            count=sum(value is not None and str(value).strip()!='' for value in pending['metadata'].values())
+            staged_info.set(f"{count} metadata fields · {len(pending['extras'])} extra images\n"+' · '.join(statuses))
         def choose_role(role):
             from add_game_metadata import choose_local_cover,preview_cover
             label='Background' if role=='background_path' else 'Logo'
@@ -823,6 +826,11 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
     # Load games when window opens
     load_games()
     switch_view(view_mode.get())
+
+    from library_return import install as install_return_context
+    on_open_detail=install_return_context(games_window,'games',on_open_detail,grid_view,game_table,
+                                        search_entry,view_mode,switch_view,load_games,filters,
+                                        extra_vars={'platform':platform_var,'legacy_sort':sort_var,'legacy_status':status_var},restore=restore_library)
 
     if initial_edit_id is not None:
         for row_id in game_table.get_children():

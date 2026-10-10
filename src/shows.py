@@ -11,7 +11,7 @@ from utils import format_time, parse_time
 from form_safety import SafeFormModal, FormValidation, required, whole_number, duration
 
 
-def open_shows(parent, on_open_detail=None, initial_edit_id=None):
+def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_library=False):
 
     shows_window = tk.Frame(parent)
     shows_window.pack(fill="both", expand=True)
@@ -719,6 +719,11 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None):
 
     load_shows()
     switch_view(view_mode.get())
+
+    from library_return import install as install_return_context
+    on_open_detail=install_return_context(shows_window,'shows',on_open_detail,grid_view,show_table,
+                                        search_entry,view_mode,switch_view,load_shows,filters,
+                                        extra_vars=None,restore=restore_library)
 
     if initial_edit_id is not None:
         for row_id in show_table.get_children():

@@ -75,6 +75,7 @@ class CoverGrid(tk.Frame):
             widget.bindtags((tags[0], self._wheel_tag) + tags[1:])
 
     def _wheel(self, event):
+        if getattr(self,'cancel_return_restore',None):self.cancel_return_restore()
         if not self.canvas.winfo_exists():
             return
         if getattr(event, "num", None) == 4:
@@ -133,6 +134,7 @@ class CoverGrid(tk.Frame):
         self.render()
 
     def change_page(self, offset):
+        if getattr(self,'cancel_return_restore',None):self.cancel_return_restore()
         new_page = self.page + offset
         if 0 <= new_page < max(1, (len(self.rows) + PAGE_SIZE - 1) // PAGE_SIZE):
             self.page = new_page

@@ -11,7 +11,7 @@ from utils import format_time, parse_time
 from form_safety import SafeFormModal, FormValidation, required, whole_number, duration
 
 
-def open_books(parent, on_open_detail=None, initial_edit_id=None):
+def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_library=False):
 
     books_window = tk.Frame(parent)
     books_window.pack(fill="both", expand=True)
@@ -764,6 +764,11 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None):
     # Load books
     load_books()
     switch_view(view_mode.get())
+
+    from library_return import install as install_return_context
+    on_open_detail=install_return_context(books_window,'books',on_open_detail,grid_view,book_table,
+                                        search_entry,view_mode,switch_view,load_books,filters,
+                                        extra_vars=None,restore=restore_library)
 
     if initial_edit_id is not None:
         for row_id in book_table.get_children():

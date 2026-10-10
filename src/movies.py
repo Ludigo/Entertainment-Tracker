@@ -11,7 +11,7 @@ from utils import format_time, parse_time
 from form_safety import SafeFormModal, FormValidation, required, whole_number, duration
 
 
-def open_movies(parent, on_open_detail=None, initial_edit_id=None):
+def open_movies(parent, on_open_detail=None, initial_edit_id=None, restore_library=False):
 
     movies_window = tk.Frame(parent)
     movies_window.pack(fill="both", expand=True)
@@ -822,6 +822,11 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None):
     # Load movies when window opens
     load_movies()
     switch_view(view_mode.get())
+
+    from library_return import install as install_return_context
+    on_open_detail=install_return_context(movies_window,'movies',on_open_detail,grid_view,movie_table,
+                                        search_entry,view_mode,switch_view,load_movies,filters,
+                                        extra_vars=None,restore=restore_library)
 
     if initial_edit_id is not None:
         for row_id in movie_table.get_children():

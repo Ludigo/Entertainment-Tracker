@@ -294,9 +294,8 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             info.set('Use Collection actions → Relink missing image to choose a replacement.')
             return
         try:
-            with Image.open(io.BytesIO(e['raw'])) as im:
-                picture=im.convert('RGBA')
-                picture.thumbnail((620,150),Image.Resampling.LANCZOS)
+            from add_game_metadata import preview_picture
+            picture=preview_picture(e['raw'],get_setting('art_preview_background','Dark'),(620,150),upscale=False)
             preview_state['photo']=ImageTk.PhotoImage(picture)
             selected_preview.configure(image=preview_state['photo'],text='')
         except (OSError,ValueError,Image.DecompressionBombError):
@@ -429,10 +428,19 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         popup=tk.Toplevel(win);popup.title(e['label']);popup.configure(bg=BG)
         polish_dialog(popup)
         popup.geometry('850x650')
-        with Image.open(io.BytesIO(e['raw'])) as im:
-            im.thumbnail((800,575),Image.Resampling.LANCZOS)
-            photo=ImageTk.PhotoImage(im.copy())
-        lbl=tk.Label(popup,image=photo,bg=BG);lbl.image=photo;lbl.pack(fill='both',expand=True,padx=10,pady=10)
+        saved=get_setting('art_preview_background','Dark')
+        mode=tk.StringVar(value=saved if saved in ('Dark','Checkerboard') else 'Dark')
+        controls=tk.Frame(popup,bg=BG);controls.pack(fill='x',padx=10,pady=(10,0))
+        tk.Label(controls,text='Preview background:',bg=BG,fg=TEXT).pack(side='left')
+        choice=ttk.Combobox(controls,textvariable=mode,values=('Dark','Checkerboard'),state='readonly',width=16)
+        choice.pack(side='left',padx=8)
+        lbl=tk.Label(popup,bg=BG);lbl.pack(fill='both',expand=True,padx=10,pady=10)
+        def render(event=None):
+            from add_game_metadata import preview_picture
+            lbl.image=ImageTk.PhotoImage(preview_picture(e['raw'],mode.get(),(800,520),upscale=False))
+            lbl.configure(image=lbl.image)
+            if event is not None:set_setting('art_preview_background',mode.get())
+        choice.bind('<<ComboboxSelected>>',render);render()
         tk.Label(popup,text=f"{e['w']} × {e['h']} · {e['shape']}",bg=BG,fg=TEXT).pack(pady=10)
     def save_selected(make_cover):
         if make_cover and len(selected['indices'])>1:

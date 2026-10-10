@@ -15,9 +15,9 @@ from window_style import install as polish_dialog
 from media_naming import clean_name
 from artwork_preferences import import_folder, remember_import_folder
 try:
-    from PIL import Image, ImageTk, ImageOps
+    from PIL import Image, ImageTk, ImageOps, ImageDraw
 except ImportError:
-    Image = ImageTk = ImageOps = None
+    Image = ImageTk = ImageOps = ImageDraw = None
 
 METADATA_FIELDS = ('release_year','release_date','genre','developer','publisher','game_modes','age_rating')
 REVIEW_FIELDS = [('name','Title'),('platform','Platform'),('description','Description'),
@@ -80,15 +80,28 @@ def choose_local_cover(parent,role='Cover'):
     return validated_cover(Path(filename).read_bytes(),Path(filename).name)
 
 
+def preview_picture(raw,mode='Dark',size=(610,520),upscale=True):
+    """Composite only the preview; original imported bytes remain unchanged."""
+    with Image.open(io.BytesIO(raw)) as source:
+        if not upscale:size=(min(size[0],source.width),min(size[1],source.height))
+        picture=ImageOps.contain(source.convert('RGBA'),size)
+    base=Image.new('RGBA',picture.size,BG)
+    if mode=='Checkerboard':
+        draw=ImageDraw.Draw(base)
+        for y in range(0,picture.height,16):
+            for x in range(0,picture.width,16):
+                draw.rectangle((x,y,x+15,y+15),fill='#8b8b8b' if (x//16+y//16)%2 else '#454545')
+    return Image.alpha_composite(base,picture).convert('RGB')
+
+
 def preview_cover(parent,cover,role='Artwork'):
     if not cover:return
     if not cover.get('raw'):
         messagebox.showinfo('Missing artwork','This saved image is unavailable. Relink it in Artwork Manager or choose a replacement.',parent=parent);return
     win=tk.Toplevel(parent);polish_dialog(win);win.title('Proposed Game '+role)
     win.configure(bg=BG);win.geometry('650x610');win.transient(parent.winfo_toplevel())
-    with Image.open(io.BytesIO(cover['raw'])) as image:
-        picture=ImageOps.contain(image.convert('RGBA'),(610,520))
-    photo=ImageTk.PhotoImage(picture)
+    saved=get_setting('art_preview_background','Dark')
+    mode=tk.StringVar(value=saved if saved in ('Dark','Checkerboard') else 'Dark')
     previous_grab=win.grab_current()
     def close(event=None):
         win.destroy()
@@ -98,7 +111,16 @@ def preview_cover(parent,cover,role='Artwork'):
             except tk.TclError:pass
         return 'break'
     win.protocol('WM_DELETE_WINDOW',close);win.grab_set()
-    label=tk.Label(win,image=photo,bg=BG);label.image=photo;label.pack(fill='both',expand=True,padx=12,pady=12)
+    controls=tk.Frame(win,bg=BG);controls.pack(fill='x',padx=12,pady=(10,0))
+    tk.Label(controls,text='Preview background:',bg=BG,fg=TEXT).pack(side='left')
+    choice=ttk.Combobox(controls,textvariable=mode,values=('Dark','Checkerboard'),state='readonly',width=16)
+    choice.pack(side='left',padx=8)
+    label=tk.Label(win,bg=BG);label.pack(fill='both',expand=True,padx=12,pady=12)
+    def render(event=None):
+        label.image=ImageTk.PhotoImage(preview_picture(cover['raw'],mode.get(),(610,460)))
+        label.configure(image=label.image)
+        if event is not None:set_setting('art_preview_background',mode.get())
+    choice.bind('<<ComboboxSelected>>',render);render()
     tk.Label(win,text=f"{cover['label']} · {cover['w']} × {cover['h']}",bg=BG,fg=TEXT,wraplength=610).pack()
     tk.Button(win,text='Close',command=close,bg=PANEL_ALT,fg=TEXT,relief='flat').pack(pady=10)
     win.bind('<Escape>',close)
@@ -257,12 +279,30 @@ def edit_staged_metadata(parent,accent,metadata,on_apply):
     win=tk.Toplevel(parent);polish_dialog(win);win.title('Review / Edit Staged Metadata')
     win.geometry('600x580');win.configure(bg=BG);win.transient(parent.winfo_toplevel())
     previous=win.grab_current();win.grab_set()
-    def close(event=None):
+    state={'applied':None,'prompt':None}
+    def finish():
         win.destroy()
         if previous is not None:
             try:
                 if previous.winfo_exists():previous.grab_set()
             except tk.TclError:pass
+    def close(event=None):
+        if state['applied'] is not None and tuple(entry.get() for entry in entries.values())!=state['applied']:
+            if state['prompt'] is not None:
+                state['prompt'].lift();return 'break'
+            prompt=tk.Toplevel(win);polish_dialog(prompt);prompt.title('Unapplied Metadata Changes')
+            prompt.geometry('440x210');prompt.configure(bg=PANEL);prompt.transient(win);prompt.grab_set();state['prompt']=prompt
+            tk.Label(prompt,text='Discard metadata edits not yet applied?',bg=PANEL,fg=TEXT,
+                     wraplength=400,font=('Arial',13,'bold')).pack(padx=18,pady=(20,10))
+            tk.Label(prompt,text='Keep editing to apply these changes to the game form.',bg=PANEL,fg=MUTED,wraplength=400).pack(padx=18)
+            def keep(event=None):
+                prompt.destroy();state['prompt']=None;win.grab_set();return 'break'
+            def discard():prompt.destroy();state['prompt']=None;finish()
+            actions=tk.Frame(prompt,bg=PANEL);actions.pack(fill='x',padx=18,pady=18)
+            tk.Button(actions,text='Keep Editing',command=keep,bg=accent,fg='white',relief='flat',padx=12,pady=8).pack(side='right')
+            tk.Button(actions,text='Discard Unapplied',command=discard,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=12,pady=8).pack(side='right',padx=8)
+            prompt.protocol('WM_DELETE_WINDOW',keep);prompt.bind('<Escape>',keep)
+        else:finish()
         return 'break'
     win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',close)
     tk.Label(win,text='Edit locally. Apply stages changes; Save Game completes them.',bg=BG,fg=MUTED,wraplength=560).pack(padx=15,pady=12)
@@ -272,11 +312,13 @@ def edit_staged_metadata(parent,accent,metadata,on_apply):
         tk.Label(win,text=labels[key]+(' (YYYY-MM-DD)' if key=='release_date' else ''),bg=BG,fg=TEXT).pack(anchor='w',padx=15)
         entry=tk.Entry(win,bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT,relief='flat')
         entry.insert(0,str(metadata.get(key) or ''));entry.pack(fill='x',padx=15,pady=(2,7));entries[key]=entry
+    state['applied']=tuple(entry.get() for entry in entries.values())
     error=tk.StringVar();tk.Label(win,textvariable=error,bg=BG,fg=TEXT,wraplength=560).pack(padx=15,pady=5)
     def apply():
         try:values=normalise_manual_metadata({key:entry.get() for key,entry in entries.items()})
         except ValueError as exc:error.set(str(exc));return
-        on_apply(values);error.set('Applied to form. Save Game completes these changes.')
+        on_apply(values);state['applied']=tuple(entry.get() for entry in entries.values())
+        error.set('Applied to form. Save Game completes these changes.')
     actions=tk.Frame(win,bg=BG);actions.pack(fill='x',padx=15,pady=12)
     tk.Button(actions,text='Apply to Form',command=apply,bg=accent,fg='white',relief='flat',padx=14,pady=8).pack(side='right')
     tk.Button(actions,text='Close',command=close,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=14,pady=8).pack(side='right',padx=8)

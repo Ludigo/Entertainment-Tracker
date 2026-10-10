@@ -370,14 +370,14 @@ def _show_media_detail(kind, item_id, back_command, edit_command):
     reveal_content()
 
 
-def show_games(initial_edit_id=None):
+def show_games(initial_edit_id=None,restore_library=False):
     global current_page
     current_page = "Games"
     clear_content()
     open_games(
         content,
-        on_open_detail=lambda item_id: _show_media_detail("games", item_id, show_games, show_games),
-        initial_edit_id=initial_edit_id
+        on_open_detail=lambda item_id: _show_media_detail("games", item_id, lambda:show_games(restore_library=True), show_games),
+        initial_edit_id=initial_edit_id,restore_library=restore_library
     )
     finish_page()
 
@@ -391,38 +391,38 @@ def show_history():
     reveal_content()
 
 
-def show_movies(initial_edit_id=None):
+def show_movies(initial_edit_id=None,restore_library=False):
     global current_page
     current_page = "Movies"
     clear_content()
     open_movies(
         content,
-        on_open_detail=lambda item_id: _show_media_detail("movies", item_id, show_movies, show_movies),
-        initial_edit_id=initial_edit_id
+        on_open_detail=lambda item_id: _show_media_detail("movies", item_id, lambda:show_movies(restore_library=True), show_movies),
+        initial_edit_id=initial_edit_id,restore_library=restore_library
     )
     finish_page()
 
 
-def show_shows(initial_edit_id=None):
+def show_shows(initial_edit_id=None,restore_library=False):
     global current_page
     current_page = "Shows"
     clear_content()
     open_shows(
         content,
-        on_open_detail=lambda item_id: _show_media_detail("shows", item_id, show_shows, show_shows),
-        initial_edit_id=initial_edit_id
+        on_open_detail=lambda item_id: _show_media_detail("shows", item_id, lambda:show_shows(restore_library=True), show_shows),
+        initial_edit_id=initial_edit_id,restore_library=restore_library
     )
     finish_page()
 
 
-def show_books(initial_edit_id=None):
+def show_books(initial_edit_id=None,restore_library=False):
     global current_page
     current_page = "Books"
     clear_content()
     open_books(
         content,
-        on_open_detail=lambda item_id: _show_media_detail("books", item_id, show_books, show_books),
-        initial_edit_id=initial_edit_id
+        on_open_detail=lambda item_id: _show_media_detail("books", item_id, lambda:show_books(restore_library=True), show_books),
+        initial_edit_id=initial_edit_id,restore_library=restore_library
     )
     finish_page()
 
