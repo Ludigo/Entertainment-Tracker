@@ -417,20 +417,6 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         tk.Button(top, text="Set Game EXE", command=choose_executable,
                   bg=PANEL_ALT, **header_button_style).pack(side="right", padx=(6, 0))
 
-    if kind in ("movies", "shows", "books"):
-        from rich_details import open_rich_editor
-        tk.Button(top, text="Edit", bg=accent, fg="white",
-                  relief="flat", padx=14, pady=8,
-                  command=lambda: open_rich_editor(page, kind, item_id, accent,
-                      lambda: show_detail(parent, kind, item_id, accent, on_back, on_edit))).pack(
-                          side="right", padx=5)
-
-    if on_edit and kind == "games":
-        tk.Button(top, text="Edit", command=lambda: on_edit(item_id), bg=accent, fg="white",
-                  activebackground=accent, activeforeground="white", relief="flat", bd=0,
-                  font=('Arial', 10, 'bold'), padx=18, pady=9,
-                  cursor="hand2").pack(side="right", padx=(6, 0))
-
     if full_art:
         body = tk.Canvas(page_container, bg=BG, bd=0, highlightthickness=0)
         body.pack(fill='both', expand=True, padx=(40, 22), pady=(0,16))
@@ -580,129 +566,13 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                       activebackground=BORDER, activeforeground="white", relief="flat", bd=0,
                       padx=14, pady=10, cursor="hand2").pack(fill="x", pady=(0, 4))
 
-    if kind == "games":
-        def edit_game_metadata():
-            from window_style import install as polish_dialog
-            dialog = tk.Toplevel(page)
-            dialog.title(f"Game Metadata - {title}")
-            dialog.geometry("540x610")
-            dialog.minsize(440, 520)
-            dialog.configure(bg=PANEL)
-            polish_dialog(dialog)
-            dialog.transient(page.winfo_toplevel())
-            tk.Label(dialog, text="GAME METADATA", bg=PANEL, fg=TEXT,
-                     font=("Arial", 15, "bold")).pack(anchor="w", padx=20, pady=(16, 5))
-            tk.Label(dialog, text="Saved locally. Leave unknown details blank; your personal tracking data is unchanged.",
-                     bg=PANEL, fg=MUTED, wraplength=490, justify="left").pack(anchor="w", padx=20, pady=(0, 12))
-            fields = (
-                ("Release Date (YYYY-MM-DD)", "release_date"),
-                ("Release Year", "release_year"),
-                ("Genre", "genre"),
-                ("Developer", "developer"),
-                ("Publisher", "publisher"),
-                ("Game Modes (e.g. Single-player)", "game_modes"),
-                ("Age Rating (e.g. PEGI 18 or ESRB M)", "age_rating"),
-            )
-            body = tk.Frame(dialog, bg=PANEL)
-            body.pack(fill="both", expand=True, padx=20)
-            entries = {}
-            for label, key in fields:
-                tk.Label(body, text=label, bg=PANEL, fg=TEXT,
-                         anchor="w").pack(fill="x", pady=(6, 2))
-                entry = tk.Entry(body, bg=PANEL_ALT, fg=TEXT, insertbackground=TEXT,
-                                 relief="flat", font=("Arial", 11))
-                entry.insert(0, str(record.get(key) or ""))
-                entry.pack(fill="x", ipady=5)
-                entries[key] = entry
-            original_values = {key: entry.get() for key, entry in entries.items()}
-            close_prompt = {'window': None}
-            def close_metadata(event=None):
-                if all(entry.get() == original_values[key] for key, entry in entries.items()):
-                    dialog.destroy()
-                    return 'break'
-                if close_prompt['window'] is not None:
-                    close_prompt['window'].lift()
-                    return 'break'
-                confirmation = tk.Toplevel(dialog)
-                close_prompt['window'] = confirmation
-                confirmation.title('Unsaved Game Metadata')
-                confirmation.geometry('420x200')
-                confirmation.resizable(False, False)
-                confirmation.configure(bg=PANEL)
-                confirmation.transient(dialog)
-                polish_dialog(confirmation)
-                tk.Label(confirmation, text='Discard unsaved metadata?', bg=PANEL, fg=TEXT,
-                         font=('Arial', 14, 'bold')).pack(anchor='w', padx=20, pady=(20, 10))
-                tk.Label(confirmation, text='Your edits have not been saved. Keep editing or discard these changes.',
-                         bg=PANEL, fg=MUTED, wraplength=380, justify='left').pack(anchor='w', padx=20)
-                def keep_editing(event=None):
-                    confirmation.destroy()
-                    close_prompt['window'] = None
-                    dialog.grab_set()
-                    dialog.focus_set()
-                    return 'break'
-                def discard_changes():
-                    confirmation.destroy()
-                    dialog.destroy()
-                actions = tk.Frame(confirmation, bg=PANEL)
-                actions.pack(side='bottom', fill='x', padx=20, pady=20)
-                keep_button = tk.Button(actions, text='Keep Editing', command=keep_editing,
-                                        bg=accent, fg='white', relief='flat', padx=12, pady=8)
-                keep_button.pack(side='right')
-                tk.Button(actions, text='Discard Changes', command=discard_changes,
-                          bg=PANEL_ALT, fg=TEXT, relief='flat', padx=12, pady=8).pack(side='right', padx=(0, 8))
-                confirmation.protocol('WM_DELETE_WINDOW', keep_editing)
-                confirmation.bind('<Escape>', keep_editing)
-                confirmation.grab_set()
-                keep_button.focus_set()
-                return 'break'
-            dialog.protocol('WM_DELETE_WINDOW', close_metadata)
-            dialog.bind('<Escape>', close_metadata)
-            tk.Label(dialog, text="UK ratings: enter PEGI 3, 7, 12, 16 or 18. Steam may supply US ESRB ratings instead.",
-                     bg=PANEL, fg=MUTED, wraplength=490, justify='left').pack(anchor='w', padx=20, pady=(5, 0))
-            error = tk.Label(dialog, text="", bg=PANEL, fg="#F19B9B")
-            error.pack(pady=(4, 0))
-            def save_metadata():
-                values = {key: entry.get().strip() for key, entry in entries.items()}
-                year = values['release_year']
-                if year and (not year.isdigit() or not 1000 <= int(year) <= 9999):
-                    error.configure(text="Release year must be four digits, or blank.")
-                    return
-                date = values['release_date']
-                if date:
-                    from datetime import date as date_type
-                    try:
-                        parsed = date_type.fromisoformat(date)
-                        if len(date) != 10:
-                            raise ValueError()
-                    except ValueError:
-                        error.configure(text="Release date must be YYYY-MM-DD, or blank.")
-                        return
-                    if year and int(year) != parsed.year:
-                        error.configure(text="Release year and release date must agree.")
-                        return
-                    if not year:
-                        values['release_year'] = str(parsed.year)
-                values['release_year'] = int(values['release_year']) if values['release_year'] else None
-                for key in values:
-                    if key != 'release_year':
-                        values[key] = values[key] or None
-                keys = tuple(values)
-                cursor.execute("UPDATE games SET " + ", ".join(f"{key}=?" for key in keys)
-                               + " WHERE id=?", tuple(values[k] for k in keys) + (item_id,))
-                connection.commit()
-                dialog.destroy()
-                show_detail(parent, kind, item_id, accent, on_back, on_edit)
-            footer = tk.Frame(dialog, bg=PANEL)
-            footer.pack(fill="x", padx=20, pady=(10, 18))
-            tk.Button(footer, text="Cancel", command=close_metadata, bg=PANEL_ALT,
-                      fg=TEXT, relief="flat", padx=18, pady=7).pack(side="right")
-            tk.Button(footer, text="Save Metadata", command=save_metadata, bg=accent,
-                      fg="white", relief="flat", padx=18, pady=7).pack(side="right", padx=(0, 8))
-            dialog.grab_set()
-        tk.Button(left, text="Edit Game Metadata", command=edit_game_metadata,
-                  bg=PANEL_ALT, fg=TEXT, relief="flat", padx=14, pady=10,
-                  cursor="hand2").pack(fill="x", pady=(0, 4))
+    def edit_metadata():
+        from rich_details import open_rich_editor
+        open_rich_editor(page, kind, item_id, accent,
+                         lambda: show_detail(parent, kind, item_id, accent, on_back, on_edit))
+    tk.Button(left, text='Edit ' + kind[:-1].title() + ' Metadata', command=edit_metadata,
+              bg=PANEL_ALT, fg=TEXT, relief='flat', padx=14, pady=10,
+              cursor='hand2').pack(fill='x', pady=(0, 4))
 
     if kind == "games":
         def open_screenshot_manager():

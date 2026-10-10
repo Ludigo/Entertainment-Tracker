@@ -1,4 +1,4 @@
-"""Unified, scrollable Edit dialog for Movies, Shows and Books."""
+"""Games-style metadata window containing the full editor for every category."""
 from window_style import install as polish_dialog
 import math
 import tkinter as tk
@@ -7,9 +7,18 @@ from database import connection
 from theme import BG, PANEL, PANEL_ALT, TEXT, MUTED, BORDER
 from utils import format_time, parse_time
 
-# The former Extra Details dialog is the base; core fields from the original
-# category editors now live here too. Artwork is deliberately edited separately.
+# Shared layout follows the original Game Metadata window, with scrolling for
+# full tracking fields. Game artwork keeps its original transactional staging.
 FIELDS = {
+    'games': [('name', 'Title', 'required'), ('platform', 'Platform', 'required'),
+              ('playtime', 'Playtime (H:MM:SS)', 'duration'), ('price_paid', 'Price paid (£)', 'money'),
+              ('completed', 'Completed', 'bool'), ('backlog', 'In backlog', 'bool'),
+              ('started', 'Started playing', 'bool'),
+              ('release_date', 'Release date (YYYY-MM-DD)', 'text'), ('release_year', 'Release year', 'int'),
+              ('genre', 'Genre', 'text'), ('developer', 'Developer', 'text'), ('publisher', 'Publisher', 'text'),
+              ('game_modes', 'Game modes (e.g. Single-player)', 'text'),
+              ('age_rating', 'Age rating (e.g. PEGI 18 or ESRB M)', 'text'),
+              ('description', 'Game description', 'multiline')],
     'movies': [('name', 'Movie name', 'required'), ('runtime', 'Runtime (H:MM:SS)', 'duration'),
                ('watch_count', 'Watch count', 'count'), ('type', 'Type', 'text'), ('genre', 'Genre', 'text'),
                ('completed', 'Completed', 'bool'), ('in_progress', 'In progress', 'bool'), ('owned', 'Owned', 'bool'),
@@ -84,11 +93,32 @@ def parse_values(kind, raw_values):
             raise InvalidField(key, str(exc)) from exc
     if kind == 'shows' and values['episode_reached'] > values['episode_count']:
         raise InvalidField('episode_reached', 'Episode reached cannot exceed episode count.')
+    if kind == 'games':
+        from add_game_metadata import METADATA_FIELDS, normalise_manual_metadata
+        try:
+            normalised = normalise_manual_metadata({key: values[key] for key in METADATA_FIELDS})
+        except ValueError as exc:
+            key = 'release_date' if 'date' in str(exc) else 'release_year'
+            raise InvalidField(key, str(exc)) from exc
+        values.update({key: value or None for key, value in normalised.items()})
     return values
 
 
-def save_values(kind, item_id, raw_values):
+def save_values(kind, item_id, raw_values, game_art=None, original_record=None):
     values = parse_values(kind, raw_values)
+    if kind == 'games':
+        from add_game_metadata import METADATA_FIELDS, load_game_artwork, update_game
+        if game_art is None:
+            cover, roles, available, expected = load_game_artwork(item_id)
+            game_art = {'cover': cover, 'roles': roles, 'extras': [], 'expected': expected, 'locks': {}}
+        original_record = original_record or {}
+        metadata = {key: values[key] for key in METADATA_FIELDS
+                    if key not in original_record or values[key] != original_record[key]}
+        core = tuple(values[key] for key in ('name', 'platform', 'playtime', 'price_paid',
+                                            'completed', 'backlog', 'started', 'description'))
+        update_game(item_id, core, metadata, game_art['cover'], game_art['extras'],
+                    game_art['roles'], game_art['expected'], game_art['locks'])
+        return values
     assignments = ', '.join(f'{field}=?' for field in values)
     with connection:
         updated = connection.execute(f'UPDATE {kind} SET {assignments} WHERE id=?', (*values.values(), item_id))
@@ -107,25 +137,25 @@ def open_rich_editor(parent, kind, item_id, accent, refresh):
     record = dict(zip(columns, row))
     window = tk.Toplevel(parent)
     polish_dialog(window)
-    window.title(f"Edit — {record['name']}")
-    window.geometry('610x660')
-    window.minsize(480, 450)
-    window.configure(bg=BG)
+    window.title(f"{kind[:-1].title()} Metadata — {record['name']}")
+    window.geometry('540x610')
+    window.minsize(440, 520)
+    window.configure(bg=PANEL)
     window.transient(parent.winfo_toplevel())
     previous_grab = window.grab_current()
     window.grab_set()
-    header = tk.Frame(window, bg=BG, padx=22, pady=18)
+    header = tk.Frame(window, bg=PANEL, padx=20, pady=16)
     header.pack(fill='x')
-    tk.Label(header, text='Edit ' + kind[:-1].title(), bg=BG, fg=TEXT,
-             font=('Arial', 19, 'bold')).pack(anchor='w')
-    tk.Label(header, text=record['name'], bg=BG, fg=MUTED,
-             wraplength=540, justify='left').pack(anchor='w', pady=(3, 0))
+    tk.Label(header, text=kind[:-1].upper() + ' METADATA', bg=PANEL, fg=TEXT,
+             font=('Arial', 15, 'bold')).pack(anchor='w')
+    tk.Label(header, text=record['name'] + '\nSaved locally. Metadata and personal tracking fields are edited together.', bg=PANEL, fg=MUTED,
+             wraplength=490, justify='left').pack(anchor='w', pady=(3, 0))
     # Footer stays visible while the form itself scrolls.
-    actions = tk.Frame(window, bg=BG, padx=20, pady=12)
+    actions = tk.Frame(window, bg=PANEL, padx=20, pady=12)
     actions.pack(side='bottom', fill='x')
-    status = tk.Label(actions, text='', bg=BG, fg='#d96a76', wraplength=540, justify='left')
+    status = tk.Label(actions, text='', bg=PANEL, fg='#d96a76', wraplength=490, justify='left')
     status.pack(anchor='w', fill='x', pady=(0, 8))
-    buttons = tk.Frame(actions, bg=BG)
+    buttons = tk.Frame(actions, bg=PANEL)
     buttons.pack(fill='x')
     body = tk.Frame(window, bg=PANEL)
     body.pack(fill='both', expand=True, padx=20)
@@ -170,7 +200,15 @@ def open_rich_editor(parent, kind, item_id, accent, refresh):
         return {key: (variables[key].get() if field_type == 'bool' else
                       widgets[key].get('1.0', 'end-1c') if field_type == 'multiline' else widgets[key].get())
                 for key, label, field_type in FIELDS[kind]}
-    initial = raw_values()
+    game_stage = None
+    if kind == 'games':
+        from metadata_game_art import GameArtworkStage
+        game_stage = GameArtworkStage(fields, window, item_id, record, widgets, accent, status)
+        tk.Label(fields, text='UK ratings: enter PEGI 3, 7, 12, 16 or 18. Steam may supply US ESRB ratings instead.',
+                 bg=PANEL, fg=MUTED, wraplength=450, justify='left').pack(fill='x', pady=(12, 4))
+    def signature():
+        return raw_values(), game_stage.signature() if game_stage else None
+    initial = signature()
     closing = {'prompt': None, 'done': False}
     wheel_tag = f'EditWheel{id(window)}'
     def wheel(event):
@@ -209,7 +247,7 @@ def open_rich_editor(parent, kind, item_id, accent, refresh):
     def close(event=None):
         if closing['done']:
             return 'break'
-        if raw_values() == initial:
+        if signature() == initial:
             finish()
             return 'break'
         if closing['prompt'] is not None:
@@ -248,7 +286,7 @@ def open_rich_editor(parent, kind, item_id, accent, refresh):
 
     def save():
         try:
-            save_values(kind, item_id, raw_values())
+            save_values(kind, item_id, raw_values(), game_stage.state() if game_stage else None, record)
         except InvalidField as exc:
             status.configure(text=str(exc))
             widget = widgets[exc.key]
@@ -265,7 +303,7 @@ def open_rich_editor(parent, kind, item_id, accent, refresh):
         finish()
         refresh()
 
-    tk.Button(buttons, text='Save Changes', command=save, bg=accent, fg='white',
+    tk.Button(buttons, text='Save Metadata', command=save, bg=accent, fg='white',
               relief='flat', padx=20, pady=9).pack(side='right')
     tk.Button(buttons, text='Cancel', command=close, bg=PANEL_ALT, fg=TEXT,
               relief='flat', padx=20, pady=9).pack(side='right', padx=9)

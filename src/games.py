@@ -632,7 +632,12 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
         if not selected:
             messagebox.showwarning("Select Game", "Select a game in List view first.")
             return
-        game_form(int(game_table.item(selected[0], "values")[0]))
+        from rich_details import open_rich_editor
+        def saved():
+            refresh_platforms()
+            load_games(search_entry.get().strip())
+        open_rich_editor(games_window, 'games', int(game_table.item(selected[0], 'values')[0]),
+                         get_setting('accent_color', '#B23A48'), saved)
 
     # -------------------------
     # DELETE GAME
