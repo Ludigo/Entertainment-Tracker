@@ -152,7 +152,19 @@ def setup_database():
         for field, definition in definitions.items():
             if field not in existing:
                 cursor.execute(f"ALTER TABLE {table} ADD COLUMN {field} {definition}")
+    session_columns = {row[1] for row in connection.execute('PRAGMA table_info(game_sessions)')}
+    if 'note' not in session_columns:
+        connection.execute("ALTER TABLE game_sessions ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+    # Non-destructive game metadata migration; all fields are optional.
+    cursor.execute("PRAGMA table_info(games)")
+    game_fields = {row[1] for row in cursor.fetchall()}
+    for field in ("release_date", "genre", "developer", "publisher",
+                  "game_modes", "age_rating"):
+        if field not in game_fields:
+            cursor.execute(f"ALTER TABLE games ADD COLUMN {field} TEXT")
     connection.commit()
+    from artwork_preferences import install_artwork_guards
+    install_artwork_guards()
 
 
 def close_database():

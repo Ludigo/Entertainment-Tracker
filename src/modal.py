@@ -77,6 +77,8 @@ class ModalFrame(tk.Frame):
 
     def _finish_setup(self):
         self._style_children()
+        from window_position import centre_modal
+        centre_modal(self)
         try:
             # Let the form's first Entry take focus if it already requested it.
             focused = self.focus_get()
@@ -147,6 +149,8 @@ class ModalFrame(tk.Frame):
             self._width = int(width)
             self._height = int(height)
             self.place_configure(width=self._width, height=self._height)
+            from window_position import centre_modal
+            self.after_idle(lambda:centre_modal(self))
         except (ValueError, AttributeError):
             pass
 

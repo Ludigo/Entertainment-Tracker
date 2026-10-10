@@ -357,7 +357,60 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
             cursor.execute("PRAGMA table_info(games)")
             record = dict(zip((col[1] for col in cursor.fetchall()), row))
 
-        modal = ModalFrame(games_window)
+        class GameFormModal(ModalFrame):
+            has_unsaved_changes = None
+            close_prompt = None
+
+            def close_saved(self):
+                # Successful saves bypass the discard warning.
+                super().destroy()
+
+            def destroy(self):
+                if self._closed:
+                    return
+                if self.has_unsaved_changes is None or not self.has_unsaved_changes():
+                    super().destroy()
+                    return
+                if self.close_prompt is not None:
+                    self.close_prompt.lift()
+                    return
+                from window_style import install as polish_dialog
+                from theme import PANEL, PANEL_ALT, TEXT, MUTED
+                confirmation = tk.Toplevel(self)
+                self.close_prompt = confirmation
+                confirmation.title('Unsaved Game Changes')
+                confirmation.geometry('420x200')
+                confirmation.resizable(False, False)
+                confirmation.configure(bg=PANEL)
+                confirmation.transient(self.host)
+                polish_dialog(confirmation)
+                tk.Label(confirmation, text='Discard unsaved game changes?', bg=PANEL, fg=TEXT,
+                         font=('Arial', 14, 'bold')).pack(anchor='w', padx=20, pady=(20, 10))
+                tk.Label(confirmation, text='Your edits have not been saved. Keep editing or discard these changes.',
+                         bg=PANEL, fg=MUTED, wraplength=380, justify='left').pack(anchor='w', padx=20)
+                def keep_editing(event=None):
+                    confirmation.destroy()
+                    self.close_prompt = None
+                    self.grab_set()
+                    self.focus_set()
+                    return 'break'
+                def discard_changes():
+                    confirmation.destroy()
+                    self.close_prompt = None
+                    self.close_saved()
+                actions = tk.Frame(confirmation, bg=PANEL)
+                actions.pack(side='bottom', fill='x', padx=20, pady=20)
+                keep_button = tk.Button(actions, text='Keep Editing', command=keep_editing,
+                                        bg=self.accent, fg='white', relief='flat', padx=12, pady=8)
+                keep_button.pack(side='right')
+                tk.Button(actions, text='Discard Changes', command=discard_changes,
+                          bg=PANEL_ALT, fg=TEXT, relief='flat', padx=12, pady=8).pack(side='right', padx=(0, 8))
+                confirmation.protocol('WM_DELETE_WINDOW', keep_editing)
+                confirmation.bind('<Escape>', keep_editing)
+                confirmation.grab_set()
+                keep_button.focus_set()
+
+        modal = GameFormModal(games_window)
         modal.title("Edit Game" if game_id is not None else "Add Game")
         modal.geometry("540x740")
         modal.resizable(False, False)
@@ -398,6 +451,13 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
         error = tk.Label(modal, text="", fg="#F19B9B", wraplength=400)
         error.pack(pady=3)
 
+        def current_form_values():
+            return (title_entry.get(), platform_entry.get(), price_entry.get(),
+                    playtime_entry.get(), description_entry.get('1.0', 'end-1c'),
+                    completed_var.get(), backlog_var.get(), started_var.get())
+        original_values = current_form_values()
+        modal.has_unsaved_changes = lambda: current_form_values() != original_values
+
         def save():
             title = title_entry.get().strip()
             platform = platform_entry.get().strip()
@@ -432,7 +492,7 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
                     "completed=?, backlog=?, started=?, description=? WHERE id=?",
                     values + (game_id,))
             connection.commit()
-            modal.destroy()
+            modal.close_saved()
             refresh_platforms()
             load_games(search_entry.get().strip())
 
@@ -629,6 +689,9 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
 
     game_table.bind("<Double-1>", on_table_double_click)
 
+
+    from search_shortcuts import install as install_search_shortcuts
+    install_search_shortcuts(games_window,search_entry,lambda:load_games(search_entry.get()))
 
     # Enter to search
     search_entry.bind(

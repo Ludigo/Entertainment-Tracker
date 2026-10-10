@@ -11,14 +11,14 @@ import urllib.request
 import uuid
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import PROJECT_ROOT, connection
+from database import PROJECT_ROOT, connection, get_setting, set_setting
 from theme import BG, PANEL, PANEL_ALT, TEXT, MUTED
 
 HEADERS = {'User-Agent': 'EntertainmentTracker/2.0 (personal metadata lookup)', 'Accept': 'application/json'}
 _CACHE = {}
 _LAST_GOOGLE_REQUEST = [0.0]
 FIELDS = {
-    'games': [('description','Description'), ('release_year','Release year'), ('cover_path','Cover art')],
+    'games': [('description','Description'), ('release_year','Release year'), ('release_date','Release date'), ('genre','Genre'), ('developer','Developer'), ('publisher','Publisher'), ('game_modes','Game modes'), ('age_rating','Age rating'), ('cover_path','Cover art')],
     'movies': [('description','Description'), ('release_year','Release year'), ('director','Director'), ('cast_members','Cast'), ('genre','Genre'), ('cover_path','Cover art')],
     'shows': [('description','Description'), ('release_year','Release year'), ('network','Network'), ('genre','Genre'), ('cover_path','Cover art')],
     'books': [('description','Description'), ('author','Author'), ('release_year','Release year'), ('publisher','Publisher'), ('isbn','ISBN'), ('page_count','Pages'), ('genre','Genre'), ('cover_path','Cover art')],
@@ -150,6 +150,43 @@ def enrich(kind, item, tmdb_token=''):
             info=data.get(item['detail'],{}).get('data') or {}
             item['description']=plain(info.get('short_description'))
             item['release_year']=re.search(r'\b(19|20)\d{2}\b',str((info.get('release_date') or {}).get('date',''))).group(0) if re.search(r'\b(19|20)\d{2}\b',str((info.get('release_date') or {}).get('date',''))) else ''
+            # Steam appdetails contains the factual fields, when published.
+            # Keep the precise release date only when the provider supplies an
+            # unambiguous day/month/year. Never manufacture missing fields.
+            from datetime import datetime
+            raw_date = str((info.get('release_date') or {}).get('date') or '').strip()
+            if not (info.get('release_date') or {}).get('coming_soon'):
+                for pattern in ('%d %b, %Y', '%d %B, %Y', '%b %d, %Y',
+                                '%B %d, %Y', '%d %b %Y', '%d %B %Y'):
+                    try:
+                        item['release_date'] = datetime.strptime(raw_date, pattern).date().isoformat()
+                        break
+                    except ValueError:
+                        continue
+            item['genre'] = ', '.join(str(x.get('description', '')).strip()
+                                      for x in info.get('genres', []) if x.get('description'))
+            item['developer'] = ', '.join(info.get('developers') or [])
+            item['publisher'] = ', '.join(info.get('publishers') or [])
+            modes = ('Single-player', 'Multi-player', 'Co-op', 'Online Co-op',
+                     'Local Co-op', 'Shared/Split Screen', 'PvP', 'Online PvP')
+            categories = [str(x.get('description') or '') for x in info.get('categories', [])]
+            item['game_modes'] = ', '.join(mode for mode in modes if mode in categories)
+            ratings = info.get('ratings') or {}
+            # Steam's ratings object is keyed by rating authority (e.g. esrb,
+            # pegi). Preserve that authority instead of importing bare "M".
+            for authority in ('pegi', 'esrb'):
+                entry = ratings.get(authority) or ratings.get(authority.upper())
+                if not isinstance(entry, dict) or not entry.get('rating'):
+                    continue
+                rating = str(entry['rating']).strip()
+                if authority == 'pegi':
+                    match = re.search(r'\b(3|7|12|16|18)\b', rating)
+                    if match:
+                        item['age_rating'] = 'PEGI ' + match.group(1)
+                        break
+                else:
+                    item['age_rating'] = 'ESRB ' + rating
+                    break
             item['cover']=info.get('header_image') or item.get('cover','')
         except Exception: pass
     elif item['source']=='TMDB' and tmdb_token.strip() and item.get('detail'):
@@ -184,6 +221,8 @@ def save_fields(kind, item_id, item, selected):
             try: value=int(value)
             except (ValueError,TypeError): continue
         if field=='cover_path':
+            from artwork_preferences import require_unlocked
+            require_unlocked(kind,item_id,'cover_path')
             if not str(value).startswith('https://'): raise ValueError('Cover must use HTTPS')
             request=urllib.request.Request(value,headers=HEADERS)
             with urllib.request.urlopen(request,timeout=15) as response:
@@ -214,12 +253,46 @@ def save_fields(kind, item_id, item, selected):
 def open_finder(parent, kind, item_id, title, accent, on_saved=None):
     win=tk.Toplevel(parent);polish_dialog(win)
     win.title('Multi-Source Metadata Finder');win.geometry('1000x790');win.minsize(750,610)
-    win.configure(bg=BG);win.transient(parent.winfo_toplevel());win.grab_set()
+    win.configure(bg=BG);win.transient(parent.winfo_toplevel())
+    previous_grab=win.grab_current()
+    changes={'saved':False,'closed':False}
+    def close_finder(event=None):
+        if changes['closed']:
+            return 'break'
+        # Include artwork saved in a child manager that is still open.
+        changes['saved']=changes['saved'] or any(
+            getattr(child,'_artwork_changed',False) for child in win.winfo_children())
+        changes['closed']=True
+        win.destroy()
+        if previous_grab is not None:
+            try:
+                if previous_grab.winfo_exists():previous_grab.grab_set()
+            except tk.TclError:pass
+        if changes['saved'] and on_saved:on_saved()
+        return 'break'
+    win.protocol('WM_DELETE_WINDOW',close_finder)
+    win.bind('<Escape>',close_finder)
+    win.grab_set()
     tk.Label(win,text='Multi-Source Metadata Finder',bg=BG,fg=TEXT,font=('Arial',19,'bold')).pack(anchor='w',padx=20,pady=(16,8))
     toolbar=tk.Frame(win,bg=BG);toolbar.pack(fill='x',padx=20)
-    query=tk.StringVar(value=title); token=tk.StringVar()
+    query=tk.StringVar(value=title)
+    token=tk.StringVar(value=get_setting('tmdb_token',''))
     tk.Entry(toolbar,textvariable=query,bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT,relief='flat',font=('Arial',12)).pack(side='left',fill='x',expand=True,ipady=7)
-    status=tk.StringVar(value='Select a source, search, then review each field before importing.')
+    status=tk.StringVar(value=('Search Steam for game details, then review fields before importing.' if kind=='games' else 'Select a source, search, then review each field before importing.'))
+    token_storage_error={'value':False}
+    def save_token(*_):
+        try:
+            # Keep exactly what was entered, including an intentionally empty value.
+            set_setting('tmdb_token',token.get())
+        except Exception:
+            token_storage_error['value']=True
+            status.set('The TMDB token could not be saved locally. Check that the data folder is writable.')
+        else:
+            if token_storage_error['value']:
+                status.set('TMDB token saved locally.')
+            token_storage_error['value']=False
+    if kind in ('movies','shows'):
+        token.trace_add('write',save_token)
     tk.Label(win,textvariable=status,bg=BG,fg=MUTED,anchor='w',wraplength=940).pack(fill='x',padx=20,pady=8)
     sourcebar=tk.Frame(win,bg=BG);sourcebar.pack(fill='x',padx=20)
     tk.Label(sourcebar,text='Source:',bg=BG,fg=TEXT).pack(side='left')
@@ -233,7 +306,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
     picker.configure(style='MetadataSource.TCombobox')
     picker.current(0)
     if kind in ('movies','shows'):
-        tk.Label(sourcebar,text='TMDB Read Access Token (optional):',bg=BG,fg=MUTED).pack(side='left',padx=(12,5))
+        tk.Label(sourcebar,text='TMDB token (saved automatically):',bg=BG,fg=MUTED).pack(side='left',padx=(12,5))
         entry=tk.Entry(sourcebar,textvariable=token,show='•',bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT,relief='flat')
         entry.pack(side='left',fill='x',expand=True)
         # TMDB remains visible even without a token; searching explains the requirement.
@@ -316,8 +389,9 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
         try:count=save_fields(kind,item_id,items[index],chosen_fields)
         except Exception as exc:messagebox.showerror('Import Failed',str(exc),parent=win);return
         if count:
-            win.destroy()
-            if on_saved:on_saved()
+            changes['saved']=True
+            show_fields(items[index])
+            status.set(f'{count} field(s) imported and saved locally. Continue searching or close when finished.')
         else:status.set('No supported fields could be imported.')
     tk.Button(toolbar,text='Search',command=do_search,bg=accent,fg='white',relief='flat',padx=16,pady=7).pack(side='left',padx=(10,0))
     bottom=tk.Frame(win,bg=BG);bottom.pack(fill='x',padx=20,pady=12)
@@ -326,8 +400,13 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
         if index is None:messagebox.showinfo('Select Result','Choose a result first.',parent=win);return
         from artwork_manager import open_manager,options
         item=items[index]
-        open_manager(win,kind,item_id,item['title'],accent,results=options(kind,item),on_saved=on_saved)
+        def artwork_saved():
+            changes['saved']=True
+            current=selected['index']
+            if current is not None:show_fields(items[current])
+            status.set('Artwork changes saved. Continue importing metadata or close when finished.')
+        open_manager(win,kind,item_id,item['title'],accent,results=options(kind,item),on_saved=artwork_saved)
     tk.Button(bottom,text='Artwork Collection…',command=artwork,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=10,pady=8).pack(side='left')
-    tk.Button(bottom,text='Cancel',command=win.destroy,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=16,pady=8).pack(side='right')
+    tk.Button(bottom,text='Close',command=close_finder,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=16,pady=8).pack(side='right')
     tk.Button(bottom,text='Import Checked Fields',command=apply,bg=accent,fg='white',relief='flat',padx=14,pady=8).pack(side='right',padx=10)
     win.after(100,do_search)

@@ -8,6 +8,7 @@ from tkinter import ttk
 from modal import ModalFrame, app_messagebox as messagebox
 from database import connection, cursor
 from utils import format_time, parse_time
+from form_safety import SafeFormModal, FormValidation, required, whole_number, duration
 
 
 def open_shows(parent, on_open_detail=None, initial_edit_id=None):
@@ -212,7 +213,7 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None):
 
         editing = existing_show is not None
 
-        form_window = ModalFrame(shows_window)
+        form_window = SafeFormModal(shows_window)
 
         if editing:
             form_window.title("Edit Show")
@@ -425,6 +426,8 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None):
 
         def save_show():
 
+            if not validation.validate():return
+
             name = name_entry.get().strip()
             type_text = type_entry.get().strip()
             genre = genre_entry.get().strip()
@@ -542,7 +545,7 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None):
 
             connection.commit()
             load_shows()
-            form_window.destroy()
+            form_window.close_saved()
 
 
         tk.Button(
@@ -558,6 +561,18 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None):
             text=""
         )
         status_label.pack()
+
+        form_window.watch([name_entry,season_entry,runtime_entry,episode_count_entry,
+                           episode_reached_entry,watch_count_entry,type_entry,genre_entry],
+                          [completed_var,progress_var,owned_var])
+        def check_episode_progress():
+            if int(episode_reached_entry.get())>int(episode_count_entry.get()):
+                return episode_reached_entry,'Episode reached cannot exceed episode count.'
+        validation=FormValidation(status_label,[(name_entry,required('a show name')),
+                   (season_entry,whole_number('Season')),(runtime_entry,duration('Runtime')),
+                   (episode_count_entry,whole_number('Episode count')),
+                   (episode_reached_entry,whole_number('Episode reached')),
+                   (watch_count_entry,whole_number('Watch count'))],check_episode_progress)
 
         name_entry.focus()
 
@@ -692,6 +707,9 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None):
             edit_show()
 
     show_table.bind("<Double-1>", on_table_double_click)
+
+    from search_shortcuts import install as install_search_shortcuts
+    install_search_shortcuts(shows_window,search_entry,lambda:load_shows(search_entry.get()))
 
     search_entry.bind(
         "<Return>",

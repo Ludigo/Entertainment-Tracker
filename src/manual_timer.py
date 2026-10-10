@@ -45,9 +45,11 @@ class ManualTimer:
         if self.kind is not None and self.since is None:
             self.since = time.monotonic()
 
-    def stop(self, auto_tracker=None):
+    def stop(self, auto_tracker=None, note=''):
         if self.kind is None:
             return 0
+        note=str(note or '').strip()
+        if len(note)>2000:raise ValueError('Keep the session note to 2,000 characters or fewer.')
         self.pause()
         seconds = max(0, round(self.seconds))
         kind, item_id = self.kind, self.item_id
@@ -57,8 +59,8 @@ class ManualTimer:
             with connection:
                 if kind == 'games':
                     connection.execute('UPDATE games SET playtime = COALESCE(playtime,0) + ?, started = 1 WHERE id = ?', (seconds / 3600, item_id))
-                    connection.execute('INSERT INTO game_sessions (game_id, started_at, ended_at, duration_seconds, source) VALUES (?, ?, ?, ?, ?)',
-                                       (item_id, self.started_at, stamp(), seconds, 'manual'))
+                    connection.execute('INSERT INTO game_sessions (game_id, started_at, ended_at, duration_seconds, source, note) VALUES (?, ?, ?, ?, ?, ?)',
+                                       (item_id, self.started_at, stamp(), seconds, 'manual', note))
                 elif kind == 'books':
                     connection.execute('UPDATE books SET reading_time = COALESCE(reading_time,0) + ? WHERE id = ?', (seconds / 3600, item_id))
         self.kind, self.item_id, self.title = None, None, ''
@@ -107,7 +109,12 @@ def open_timer(parent, kind, item_id, title, accent, on_saved=None):
 
     def stop():
         try:
-            seconds = timer.stop(tracker)
+            note=''
+            if kind=='games':
+                from session_notes import ask_session_note
+                note=ask_session_note(dialog,accent)
+                if note is None:return
+            seconds = timer.stop(tracker,note=note)
         except ValueError as e:
             messagebox.showwarning('Timer', str(e), parent=dialog)
             return

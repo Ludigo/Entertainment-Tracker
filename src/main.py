@@ -39,6 +39,9 @@ window.title("Entertainment Tracker")
 window.geometry("1200x700")
 window.minsize(900, 560)
 window.configure(bg=BG)
+from window_position import install as position_windows, maximise_main
+position_windows(window)
+maximise_main(window)
 configure_ttk(window, accent)
 tracker = GameTracker(window)
 window.game_tracker = tracker

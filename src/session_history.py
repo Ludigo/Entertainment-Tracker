@@ -29,11 +29,11 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
 
     if game_id is None:
         cursor.execute("SELECT s.started_at, s.ended_at, s.duration_seconds, s.source, "
-                       "g.name FROM game_sessions s JOIN games g ON g.id = s.game_id "
+                       "g.name, s.note FROM game_sessions s JOIN games g ON g.id = s.game_id "
                        "ORDER BY s.started_at DESC, s.id DESC")
     else:
         cursor.execute("SELECT s.started_at, s.ended_at, s.duration_seconds, s.source, "
-                       "g.name FROM game_sessions s JOIN games g ON g.id = s.game_id "
+                       "g.name, s.note FROM game_sessions s JOIN games g ON g.id = s.game_id "
                        "WHERE s.game_id = ? ORDER BY s.started_at DESC, s.id DESC", (game_id,))
     sessions = cursor.fetchall()
     count = len(sessions)
@@ -70,7 +70,7 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
     # originally saved in UTC by the tracker.
     by_day = {}
     parsed = []
-    for started, ended, seconds, source, session_game in sessions:
+    for started, ended, seconds, source, session_game, note in sessions:
         try:
             dt = datetime.fromisoformat(started)
             if dt.tzinfo is None:
@@ -78,7 +78,7 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
             local = dt.astimezone()
         except (ValueError, TypeError):
             continue
-        parsed.append((local, int(seconds or 0), source, session_game))
+        parsed.append((local, int(seconds or 0), source, session_game, note))
         # Split sessions across local midnight, using recorded elapsed seconds.
         end = local + timedelta(seconds=max(0, int(seconds or 0)))
         point = local
@@ -161,7 +161,7 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
     if not parsed:
         tk.Label(inner, text="No completed sessions recorded yet.",
                  bg=PANEL, fg=MUTED).pack(anchor="w", pady=10)
-    for local, seconds, source, session_game in parsed:
+    for local, seconds, source, session_game, note in parsed:
         row = tk.Frame(inner, bg=PANEL_ALT, padx=12, pady=10)
         row.pack(fill="x", pady=3)
         info = tk.Frame(row, bg=PANEL_ALT)
@@ -172,6 +172,10 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
         tk.Label(info, text=local.strftime("%d %b %Y  •  %H:%M"), bg=PANEL_ALT,
                  fg=MUTED if game_id is None else TEXT,
                  font=("Arial", 9)).pack(anchor="w")
+        if note:
+            note_label=tk.Label(info,text=note,bg=PANEL_ALT,fg=MUTED,justify='left',anchor='w',wraplength=330)
+            note_label.pack(fill='x',pady=(5,0))
+            info.bind('<Configure>',lambda event,label=note_label:label.configure(wraplength=max(100,event.width)))
         tk.Label(row, text=duration_text(seconds), bg=PANEL_ALT,
                  fg=accent, font=("Arial", 10, "bold")).pack(side="right")
 

@@ -8,6 +8,7 @@ from tkinter import ttk
 from modal import ModalFrame, app_messagebox as messagebox
 from database import connection, cursor
 from utils import format_time, parse_time
+from form_safety import SafeFormModal, FormValidation, required, whole_number, duration
 
 
 def open_movies(parent, on_open_detail=None, initial_edit_id=None):
@@ -255,7 +256,7 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None):
 
     def add_movie_window():
 
-        add_window = ModalFrame(
+        add_window = SafeFormModal(
             movies_window
         )
 
@@ -319,6 +320,8 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None):
         # -------------------------
 
         def save_movie():
+
+            if not validation.validate():return
 
             name = name_entry.get().strip()
 
@@ -405,7 +408,7 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None):
             load_movies()
 
             # Close Add Movie
-            add_window.destroy()
+            add_window.close_saved()
 
 
         save_button = tk.Button(
@@ -423,6 +426,10 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None):
         )
         status_label.pack()
 
+
+        add_window.watch([name_entry,runtime_entry,watch_count_entry])
+        validation=FormValidation(status_label,[(name_entry,required('a movie name')),
+                    (runtime_entry,duration('Runtime')),(watch_count_entry,whole_number('Watch count'))])
 
         name_entry.focus()
 
@@ -475,7 +482,7 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None):
             return
 
 
-        edit_window = ModalFrame(
+        edit_window = SafeFormModal(
             movies_window
         )
 
@@ -554,6 +561,8 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None):
         # -------------------------
 
         def save_changes():
+
+            if not validation.validate():return
 
             name = (
                 name_entry
@@ -642,7 +651,7 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None):
 
             load_movies()
 
-            edit_window.destroy()
+            edit_window.close_saved()
 
 
         save_button = tk.Button(
@@ -660,6 +669,10 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None):
         )
         status_label.pack()
 
+
+        edit_window.watch([name_entry,runtime_entry,watch_count_entry])
+        validation=FormValidation(status_label,[(name_entry,required('a movie name')),
+                    (runtime_entry,duration('Runtime')),(watch_count_entry,whole_number('Watch count'))])
 
         name_entry.focus()
 
@@ -795,6 +808,9 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None):
 
     movie_table.bind("<Double-1>", on_table_double_click)
 
+
+    from search_shortcuts import install as install_search_shortcuts
+    install_search_shortcuts(movies_window,search_entry,lambda:load_movies(search_entry.get()))
 
     # Enter to search
     search_entry.bind(

@@ -8,6 +8,7 @@ from tkinter import ttk
 from modal import ModalFrame, app_messagebox as messagebox
 from database import connection, cursor
 from utils import format_time, parse_time
+from form_safety import SafeFormModal, FormValidation, required, whole_number, duration
 
 
 def open_books(parent, on_open_detail=None, initial_edit_id=None):
@@ -205,7 +206,7 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None):
 
         editing = existing_book is not None
 
-        form_window = ModalFrame(books_window)
+        form_window = SafeFormModal(books_window)
 
         form_window.title(
             "Edit Book" if editing else "Add Book"
@@ -396,6 +397,8 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None):
 
         def save_book():
 
+            if not validation.validate():return
+
             name = name_entry.get().strip()
 
             type_text = (
@@ -547,7 +550,7 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None):
 
             load_books()
 
-            form_window.destroy()
+            form_window.close_saved()
 
 
         tk.Button(
@@ -564,6 +567,12 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None):
         )
         status_label.pack()
 
+
+        form_window.watch([name_entry,page_count_entry,reading_time_entry,read_count_entry,type_entry,genre_entry],
+                          [completed_var,progress_var,owned_var])
+        validation=FormValidation(status_label,[(name_entry,required('a book name')),
+                   (page_count_entry,whole_number('Page count')),(reading_time_entry,duration('Reading time')),
+                   (read_count_entry,whole_number('Read count'))])
 
         name_entry.focus()
 
@@ -741,6 +750,9 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None):
 
     book_table.bind("<Double-1>", on_table_double_click)
 
+
+    from search_shortcuts import install as install_search_shortcuts
+    install_search_shortcuts(books_window,search_entry,lambda:load_books(search_entry.get()))
 
     # Enter to search
     search_entry.bind(
