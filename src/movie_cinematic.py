@@ -12,21 +12,23 @@ except ImportError:
     Image = ImageTk = None
 
 
-def background_path(item_id):
-    row = connection.execute('SELECT background_path FROM movies WHERE id=?', (item_id,)).fetchone()
+def background_path(item_id, kind='movies'):
+    if kind not in ('movies','shows'):raise ValueError('Invalid background category')
+    row = connection.execute(f'SELECT background_path FROM {kind} WHERE id=?', (item_id,)).fetchone()
     return row[0] if row else None
 
 
-def set_background(item_id, path):
-    require_unlocked('movies', item_id, 'background_path')
+def set_background(item_id, path, kind='movies'):
+    if kind not in ('movies','shows'):raise ValueError('Invalid background category')
+    require_unlocked(kind, item_id, 'background_path')
     if path and not connection.execute(
             'SELECT 1 FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',
-            ('movies', item_id, path)).fetchone():
-        raise ValueError('Choose a saved image from this movie’s artwork collection.')
+            (kind, item_id, path)).fetchone():
+        raise ValueError('Choose a saved image from this item’s artwork collection.')
     with connection:
-        changed = connection.execute('UPDATE movies SET background_path=? WHERE id=?', (path, item_id))
+        changed = connection.execute(f'UPDATE {kind} SET background_path=? WHERE id=?', (path, item_id))
         if changed.rowcount != 1:
-            raise ValueError('This movie is no longer in the collection.')
+            raise ValueError('This item is no longer in the collection.')
 
 
 def movie_sections(record):
@@ -69,7 +71,8 @@ def wrap_text(value, font, width):
     return '\n'.join(lines)
 
 
-def render(parent, record, accent, page=None, page_state=None):
+def render(parent, record, accent, page=None, page_state=None, *,
+           section_builder=movie_sections, media_label='MOVIE', subtitle=None, progress=None):
     canvas = tk.Canvas(parent, bg='#181c22', bd=0, highlightthickness=0, yscrollincrement=24)
     canvas.pack(side='left', fill='both', expand=True)
     bar = tk.Scrollbar(parent, orient='vertical')
@@ -118,9 +121,9 @@ def render(parent, record, accent, page=None, page_state=None):
         y = 22
         y += text(margin, y, record['name'], 'title') + 8
         year = record.get('release_year')
-        y += text(margin, y, 'MOVIE' + (f'  ·  {year}' if year else ''), 'label', accent) + 22
-        facts, activity = movie_sections(record)
-        for heading, fields in [('MOVIE INFORMATION', facts), ('MY MOVIE ACTIVITY', activity)]:
+        y += text(margin, y, subtitle if subtitle is not None else media_label + (f'  ·  {year}' if year else ''), 'label', accent) + 22
+        facts, activity = section_builder(record)
+        for heading, fields in [(media_label + ' INFORMATION', facts), ('MY ' + media_label + ' ACTIVITY', activity)]:
             start = y
             inset = margin + 18
             y += 18
@@ -135,6 +138,17 @@ def render(parent, record, accent, page=None, page_state=None):
                     value_height = text(x, y + label_height + 5, value, text_width=cell_width)
                     row_height = max(row_height, label_height + 5 + value_height)
                 y += row_height + 18
+            if fields is activity and progress is not None:
+                label, progress_fraction = progress
+                y += text(inset, y, label, 'value', TEXT, usable - 36) + 10
+                if progress_fraction is not None:
+                    end = width - margin - 18
+                    canvas.create_rectangle(inset, y, end, y + 8, fill='#343b47', outline='', tags='paint')
+                    if progress_fraction > 0:
+                        canvas.create_rectangle(inset, y, inset + (end - inset) * progress_fraction, y + 8,
+                                                fill=accent, outline='', tags='paint')
+                    y += 18
+                y += 8
             panels.append((margin, start, width - margin, y))
             y += 18
         for heading, content in [('DESCRIPTION', record.get('description') or 'No description saved yet.'),

@@ -1,6 +1,6 @@
 # Entertainment Tracker v1.0
 
-This is the **beta development branch**. The latest Windows-tested and approved source is **Beta 1.56 — All Category Metadata**. The next candidate is **Beta 1.57**; subsequent builds continue Beta 1.58, Beta 1.59, and so on. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
+This is the **beta development branch**. The latest Windows-tested and approved source is **Beta 1.57 — Cinematic Shows**. The next candidate is **Beta 1.58**; subsequent builds continue Beta 1.59, Beta 1.60, and so on. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
 
 A personal, non-commercial Windows desktop application built with Python.
 
@@ -56,3 +56,13 @@ The public repository and GitHub-generated source archives contain no personal d
 ### Validation
 
 The attached completed Phase 1 build was Windows-tested by the maintainer. Publication checks verify Python syntax and source-file identity; they do not repeat Windows GUI testing.
+
+## Beta 1.57 — Cinematic Shows
+
+Windows-tested and approved by the maintainer.
+
+- Cinematic Shows details with local background artwork and independent cover presentation.
+- Show Information and My Show Activity panels retain saved metadata and existing watch-time calculations.
+- Show backgrounds can be selected, cleared and protected through Artwork Collection, with offline audit, relink and portable backup support.
+- Episode progress displays saved current-season counts, with guidance for missing or invalid totals.
+- Existing metadata editors and embedded Books timer retained.

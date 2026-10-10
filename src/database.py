@@ -75,9 +75,10 @@ def setup_database():
         if "cover_path" not in columns:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN cover_path TEXT")
 
-    cursor.execute("PRAGMA table_info(movies)")
-    if "background_path" not in {column[1] for column in cursor.fetchall()}:
-        cursor.execute("ALTER TABLE movies ADD COLUMN background_path TEXT")
+    for table in ('movies', 'shows'):
+        cursor.execute(f"PRAGMA table_info({table})")
+        if "background_path" not in {column[1] for column in cursor.fetchall()}:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN background_path TEXT")
 
     cursor.execute("PRAGMA table_info(games)")
     game_columns = {column[1] for column in cursor.fetchall()}
