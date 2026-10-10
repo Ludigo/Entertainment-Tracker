@@ -11,11 +11,14 @@ def duration_text(seconds):
     return f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
 
 
-def all_activity_sessions():
+def all_activity_sessions(visible_only=False):
     rows=[]
     for table,items,foreign,label in (('game_sessions','games','game_id','Game'),
                                      ('cd_sessions','cds','cd_id','Album'),
                                      ('book_sessions','books','book_id','Book')):
+        if visible_only:
+            from collection_visibility import enabled
+            if not enabled(items): continue
         rows.extend(connection_row for connection_row in cursor.execute(
             f"SELECT s.started_at,s.ended_at,s.duration_seconds,s.source,? || ' · ' || i.name,s.note FROM {table} s JOIN {items} i ON i.id=s.{foreign}", (label,)).fetchall())
     def key(row):
@@ -43,7 +46,7 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
              bg=BG, fg=TEXT, font=("Arial", 27, "bold")).pack(anchor="w", padx=36)
 
     if game_id is None:
-        sessions=all_activity_sessions()
+        sessions=all_activity_sessions(visible_only=True)
     else:
         cursor.execute("SELECT s.started_at, s.ended_at, s.duration_seconds, s.source, "
                        "g.name, s.note FROM game_sessions s JOIN games g ON g.id = s.game_id "

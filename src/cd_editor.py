@@ -84,34 +84,10 @@ class AlbumEditor:
         self.table.bind('<Double-1>',lambda e:self.edit_track() if self.table.identify_region(e.x,e.y)=='cell' else None)
         self.render_tracks()
         arttab=tk.Frame(tabs,bg=PANEL);self.arttab=arttab;tabs.add(arttab,text='Artwork')
-        self.art_summary=tk.StringVar(value='');tk.Label(arttab,textvariable=self.art_summary,bg=PANEL,fg=TEXT,justify='left',wraplength=600).pack(anchor='w',padx=16,pady=16)
-        art_controls=tk.Frame(arttab,bg=PANEL);art_controls.pack(fill='x',padx=16)
-        for index,(text,command) in enumerate([('Local Cover',lambda:self.local('cover')),
-                ('Local Background',lambda:self.local('background')),('Preview Selected',self.preview_selected)]):
-            tk.Button(art_controls,text=text,command=command,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=6,pady=6).grid(row=0,column=index,sticky='ew',padx=3,pady=3)
-            art_controls.columnconfigure(index,weight=1)
-        actions=tk.Menubutton(art_controls,text='More ▾',bg=PANEL_ALT,fg=TEXT,relief='flat',padx=6,pady=6)
-        actions.grid(row=0,column=3,sticky='ew',padx=3,pady=3)
-        menu=tk.Menu(actions,tearoff=False);actions.configure(menu=menu)
-        for text,command in [('Preview Cover',lambda:self.preview('cover')),('Preview Background',lambda:self.preview('background')),
-                             ('Clear Cover',lambda:self.clear('cover')),('Clear Background',lambda:self.clear('background'))]:
-            menu.add_command(label=text,command=command)
-        tk.Label(arttab,text='Select an image below. Choose its role, then Save Album to keep it.',bg=PANEL,fg=MUTED,wraplength=500).pack(anchor='w',padx=16,pady=6)
-        artbody=tk.Frame(arttab,bg=PANEL);artbody.pack(fill='both',expand=True,padx=16,pady=8)
-        art_style=ttk.Style(self.win)
-        art_style.configure('CDArtwork.Treeview',rowheight=112)
+        from draft_artwork_ui import build_artwork_tab
         self.art_photos={}
-        self.art_list=ttk.Treeview(artbody,columns=('Image','Size'),show='tree headings',height=2,selectmode='browse',style='CDArtwork.Treeview')
-        self.art_list.heading('#0',text='Preview');self.art_list.column('#0',width=140,minwidth=140,stretch=False)
-        for key in ('Image','Size'):self.art_list.heading(key,text=key)
-        self.art_list.column('Image',width=240);self.art_list.column('Size',width=100)
-        artscroll=ttk.Scrollbar(artbody,command=self.art_list.yview);artscroll.pack(side='right',fill='y')
-        self.art_list.configure(yscrollcommand=artscroll.set);self.art_list.pack(fill='both',expand=True)
-        self.art_list.bind('<Double-1>',lambda event:self.preview_selected() if self.art_list.identify_region(event.x,event.y) in ('tree','cell') else None)
-        roles_row=tk.Frame(arttab,bg=PANEL);roles_row.pack(side='bottom',fill='x',padx=16,pady=6,before=artbody)
-        for column,(label,role) in enumerate([('Set Cover','cover'),('Set Background','background'),('Toggle Extra','extra')]):
-            roles_row.columnconfigure(column,weight=1)
-            tk.Button(roles_row,text=label,command=lambda r=role:self.assign_art(r),bg=PANEL_ALT,fg=TEXT,pady=6).grid(row=0,column=column,sticky='ew',padx=3)
+        self.art_list,self.art_summary=build_artwork_tab(self.win,arttab,'Album',('cover','background'),
+            self.local,self.preview_selected,self.preview,self.clear,self.assign_art)
         self.finder=None
         self._load_saved_art();self.summary();self.initial=self.signature()
         self.win.protocol('WM_DELETE_WINDOW',self.close);self.win.bind('<Escape>',self.close)
@@ -288,7 +264,8 @@ class AlbumEditor:
                 raise ValueError('Stop and save this album’s timer before editing its listening total.')
             values,tracks=validate(self.raw(),track_text(self.tracks));values.update(self.provider)
             if self.item_id is None:
-                matches=connection.execute("SELECT id FROM cds WHERE lower(trim(name))=lower(?) AND lower(trim(COALESCE(artist,'')))=lower(?)",(values['name'],values['artist'] or '')).fetchall()
+                from unified_add import duplicate_items
+                matches=duplicate_items('cds',values)
                 if matches and not messagebox.askyesno('Possible Duplicate','This title and artist already exist. Save another edition/copy?',parent=self.win):return
             new_id=save_album(values,tracks,self.item_id,self.stage,self.original)
         except InvalidField as exc:

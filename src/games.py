@@ -632,7 +632,8 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
         title_entry.focus_set()
 
     def add_game_window():
-        game_form()
+        from unified_add import open_add
+        open_add(games_window, "games", get_setting("accent_color", "#B23A48"), lambda:load_games(search_entry.get()))
 
     def edit_game_window():
         selected = game_table.selection()

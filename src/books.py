@@ -591,7 +591,8 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     # -------------------------
 
     def add_book():
-        book_form()
+        from unified_add import open_add
+        open_add(books_window, "books", get_setting("accent_color", "#B23A48"), lambda:load_books(search_entry.get()))
 
 
     # -------------------------

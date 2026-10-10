@@ -77,6 +77,12 @@ def reveal_content():
 
 
 def refresh_nav():
+    from collection_visibility import SECTIONS, enabled
+    for kind, label in SECTIONS.items():
+        button = nav_buttons.get(label)
+        if button is not None:
+            if enabled(kind): button.pack_forget(); button.pack(fill="x", padx=10, pady=2)
+            else: button.pack_forget()
     for name, button in nav_buttons.items():
         selected = name == current_page
         button.configure(
@@ -180,7 +186,8 @@ def show_dashboard():
 
     cursor.execute("SELECT COUNT(*), COALESCE(SUM(listening_time),0) FROM cds")
     cd_count, cd_hours = cursor.fetchone()
-    total_hours = game_hours + movie_hours + show_hours + book_hours + cd_hours
+    from collection_visibility import enabled
+    total_hours = sum(hours for kind,hours in [("games",game_hours),("movies",movie_hours),("shows",show_hours),("books",book_hours),("cds",cd_hours)] if enabled(kind))
 
     page = tk.Frame(content, bg=BG)
     page.pack(fill="both", expand=True)
@@ -224,11 +231,17 @@ def show_dashboard():
             widget.bind("<Button-1>", lambda _e, c=command: c())
         return card
 
-    category_card(cards, 0, "Games", game_count, game_hours, show_games)
-    category_card(cards, 1, "Movies", movie_count, movie_hours, show_movies)
-    category_card(cards, 2, "Shows", show_count, show_hours, show_shows)
-    category_card(cards, 3, "Books", book_count, book_hours, show_books)
-    category_card(cards, 4, "CDs", cd_count, cd_hours, show_cds)
+    categories = [("games", "Games", game_count, game_hours, show_games),
+                  ("movies", "Movies", movie_count, movie_hours, show_movies),
+                  ("shows", "Shows", show_count, show_hours, show_shows),
+                  ("books", "Books", book_count, book_hours, show_books),
+                  ("cds", "CDs", cd_count, cd_hours, show_cds)]
+    visible = [item for item in categories if enabled(item[0])]
+    for col in range(5): cards.grid_columnconfigure(col, weight=1 if col<len(visible) else 0)
+    for col, (_, title, count, hours, command) in enumerate(visible):
+        category_card(cards, col, title, count, hours, command)
+    if not visible:
+        tk.Label(cards, text="All collections are hidden. Choose sections in Settings.", bg=BG, fg=MUTED).pack(pady=12)
 
     lower = tk.Frame(page, bg=BG)
     lower.grid(row=3, column=0, sticky="nsew", padx=40, pady=(14, 32))
@@ -260,7 +273,10 @@ def show_dashboard():
                    "ORDER BY name COLLATE NOCASE LIMIT 4")
     active_games = cursor.fetchall()
 
-    live_games = tracker.live_games()
+    active_games = active_games if enabled("games") else []
+    active_shows = active_shows if enabled("shows") else []
+    active_books = active_books if enabled("books") else []
+    live_games = tracker.live_games() if enabled("games") else []
     live_ids = {game[0] for game in live_games}
     active_count = len(active_games) + len(active_shows) + len(active_books) + len(live_games)
     if not active_count:
@@ -338,14 +354,19 @@ def show_dashboard():
     longest_book = cursor.fetchone()
 
     highlights = []
-    if top_game:
+    if top_game and enabled("games"):
         highlights.append(("Most played game", top_game[0], hours_text(top_game[1])))
-    if top_movie:
+    if top_movie and enabled("movies"):
         highlights.append(("Most watched movie", top_movie[0], f"{top_movie[2]} watches"))
-    if top_show:
+    if top_show and enabled("shows"):
         highlights.append(("Most watched season", f"{top_show[0]} — S{top_show[1]}", f"{top_show[2]} watches"))
-    if longest_book and longest_book[1]:
+    if longest_book and longest_book[1] and enabled("books"):
         highlights.append(("Longest book", longest_book[0], f"{longest_book[1]:,} pages"))
+
+    if enabled("cds"):
+        cursor.execute("SELECT name, listening_time FROM cds ORDER BY listening_time DESC LIMIT 1")
+        top_album = cursor.fetchone()
+        if top_album: highlights.append(("Most listened album", top_album[0], hours_text(top_album[1])))
 
     if not highlights:
         tk.Label(stats_panel, text="Add some library data and your highlights will appear here.",
@@ -375,6 +396,8 @@ def _show_media_detail(kind, item_id, back_command, edit_command):
 
 
 def show_games(initial_edit_id=None,restore_library=False):
+    from collection_visibility import enabled
+    if not enabled("games"): return show_dashboard()
     global current_page
     current_page = "Games"
     clear_content()
@@ -396,6 +419,8 @@ def show_history():
 
 
 def show_movies(initial_edit_id=None,restore_library=False):
+    from collection_visibility import enabled
+    if not enabled("movies"): return show_dashboard()
     global current_page
     current_page = "Movies"
     clear_content()
@@ -408,6 +433,8 @@ def show_movies(initial_edit_id=None,restore_library=False):
 
 
 def show_shows(initial_edit_id=None,restore_library=False):
+    from collection_visibility import enabled
+    if not enabled("shows"): return show_dashboard()
     global current_page
     current_page = "Shows"
     clear_content()
@@ -420,6 +447,8 @@ def show_shows(initial_edit_id=None,restore_library=False):
 
 
 def show_cds(restore_library=False):
+    from collection_visibility import enabled
+    if not enabled("cds"): return show_dashboard()
     global current_page
     current_page = "CDs"
     clear_content()
@@ -430,6 +459,8 @@ def show_cds(restore_library=False):
 
 
 def show_books(initial_edit_id=None,restore_library=False):
+    from collection_visibility import enabled
+    if not enabled("books"): return show_dashboard()
     global current_page
     current_page = "Books"
     clear_content()
@@ -729,6 +760,22 @@ def show_settings():
 
     canvas.bind("<Configure>", lambda event: (fit_page_width(event), arrange_settings()))
 
+    from collection_visibility import SECTIONS, enabled, save_visibility
+    collection_panel = polished_panel(settings_body, padx=18, pady=12)
+    settings_panels.append(collection_panel)
+    tk.Label(collection_panel, text="Collection Sections", font=("Arial",14,"bold"), bg=PANEL, fg=TEXT).pack(anchor="w")
+    tk.Label(collection_panel, text="Choose the sections you want to display. Hidden collections and their history are kept; enable them again at any time.", bg=PANEL, fg=MUTED, wraplength=360, justify="left").pack(anchor="w", pady=8)
+    section_vars = {kind: tk.IntVar(value=int(enabled(kind))) for kind in SECTIONS}
+    visibility_status = tk.StringVar(value="")
+    def apply_sections():
+        save_visibility({kind: bool(var.get()) for kind,var in section_vars.items()})
+        refresh_nav()
+        visibility_status.set("Section preferences saved. Your collection data is retained.")
+    for kind,label in SECTIONS.items():
+        tk.Checkbutton(collection_panel, text=label, variable=section_vars[kind], bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT).pack(anchor="w")
+    tk.Button(collection_panel, text="Save Section Preferences", command=apply_sections, bg=accent, fg="white", relief="flat", pady=8).pack(anchor="w", pady=8)
+    tk.Label(collection_panel, textvariable=visibility_status, bg=PANEL, fg=MUTED, wraplength=360).pack(anchor="w")
+
     panel = polished_panel(settings_body, padx=18, pady=12)
     settings_panels.append(panel)
     tk.Label(panel, text="APPEARANCE", font=("Arial", 9, "bold"), bg=PANEL, fg=accent).pack(anchor="w", pady=(0, 4))
@@ -835,9 +882,6 @@ def show_settings():
             backup_status.configure(text=f"Backup created: {target.name}")
         except Exception as exc:
             backup_status.configure(text=f"Backup failed: {exc}")
-    tk.Button(backup_panel, text="Create Backup Now",
-              command=backup_now, bg=accent, fg="white",
-              relief="flat", padx=15, pady=6).pack(anchor="w")
     def run_offline_audit():
         try:
             report = format_audit(audit_collection(connection))
@@ -852,8 +896,6 @@ def show_settings():
             output.configure(state="disabled")
         except Exception as exc:
             backup_status.configure(text=f"Offline audit failed: {exc}")
-    tk.Button(backup_panel, text="Check Offline Files", command=run_offline_audit,
-              bg=PANEL_ALT, fg=TEXT, relief="flat", padx=12, pady=7).pack(anchor="w", pady=(8, 0))
     def choose_restore():
         from tkinter import filedialog, messagebox as native_messagebox
         selected = filedialog.askopenfilename(parent=window, title='Select collection backup',
@@ -878,8 +920,6 @@ def show_settings():
         except Exception as exc:
             backup_status.configure(text=f'Restore failed: {exc}')
             native_messagebox.showerror('Restore not scheduled', str(exc), parent=window)
-    tk.Button(backup_panel, text='Restore from Backup...', command=choose_restore,
-              bg=PANEL_ALT, fg=TEXT, relief='flat', padx=12, pady=7).pack(anchor='w', pady=(8, 0))
     if restore_startup_error:
         backup_status.configure(text='Pending restore failed (original files retained): ' + restore_startup_error)
     elif restored_safety:
@@ -920,8 +960,6 @@ def show_settings():
                       relief='flat', padx=12, pady=7).pack(pady=(0,12))
         except Exception as exc:
             native_messagebox.showerror('Media rename preview failed',str(exc),parent=window)
-    tk.Button(backup_panel, text='Preview / Rename Existing Media...', command=preview_media_rename,
-              bg=PANEL_ALT, fg=TEXT, relief='flat', padx=12, pady=7).pack(anchor='w', pady=(8,0))
     def preview_unused_media():
         from tkinter import messagebox as native_messagebox
         from media_cleanup import scan_unused, quarantine_unused
@@ -973,8 +1011,29 @@ def show_settings():
                       bg=accent, fg='white', relief='flat', padx=14, pady=8).pack(pady=12)
         except Exception as exc:
             native_messagebox.showerror('Media cleanup scan failed',str(exc),parent=window)
-    tk.Button(backup_panel, text='Scan / Clean Unused Media...', command=preview_unused_media,
-              bg=PANEL_ALT, fg=TEXT, relief='flat', padx=12, pady=7).pack(anchor='w', pady=(8,0))
+    backup_actions = tk.Frame(backup_panel, bg=PANEL)
+    backup_actions.pack(fill="x", pady=(6, 0))
+    tk.Label(backup_actions, text="BACKUP & RECOVERY", bg=PANEL, fg=MUTED,
+             font=("Arial", 8, "bold"), anchor="w").pack(fill="x", pady=(0, 6))
+    for label, command, primary in [
+        ("Create Backup Now", backup_now, True),
+        ("Restore from Backup...", choose_restore, False),
+    ]:
+        tk.Button(backup_actions, text=label, command=command,
+                  bg=accent if primary else PANEL_ALT, fg="white" if primary else TEXT,
+                  activebackground=accent, activeforeground="white", cursor="hand2",
+                  relief="flat", padx=14, pady=9).pack(fill="x", pady=(0, 6))
+    tk.Frame(backup_actions, bg=BORDER, height=1).pack(fill="x", pady=(6, 12))
+    tk.Label(backup_actions, text="FILE MAINTENANCE", bg=PANEL, fg=MUTED,
+             font=("Arial", 8, "bold"), anchor="w").pack(fill="x", pady=(0, 6))
+    for label, command in [
+        ("Check Offline Files", run_offline_audit),
+        ("Preview / Rename Existing Media...", preview_media_rename),
+        ("Scan / Clean Unused Media...", preview_unused_media),
+    ]:
+        tk.Button(backup_actions, text=label, command=command,
+                  bg=PANEL_ALT, fg=TEXT, activebackground=accent, activeforeground="white",
+                  cursor="hand2", relief="flat", padx=14, pady=9).pack(fill="x", pady=(0, 6))
     arrange_settings()
     refresh_nav()
     reveal_content()
@@ -1008,7 +1067,11 @@ for name, command in [
         tk.Frame(sidebar, bg=BORDER, height=1).pack(fill="x", padx=20, pady=(14, 13))
         tk.Label(sidebar, text="ACTIVITY & PREFERENCES", font=("Arial", 8, "bold"),
                  bg=PANEL, fg=MUTED).pack(anchor="w", padx=23, pady=(0, 8))
-    button = tk.Button(sidebar, text=name, font=("Arial", 11), anchor="w",
+    if name == "Games":
+        collection_nav = tk.Frame(sidebar, bg=PANEL)
+        collection_nav.pack(fill="x")
+    nav_parent = collection_nav if name in ("Games","Movies","Shows","Books","CDs") else sidebar
+    button = tk.Button(nav_parent, text=name, font=("Arial", 11), anchor="w",
                        padx=18, pady=11, relief="flat", bd=0, cursor="hand2",
                        command=navigate(name, command), bg=PANEL, fg=TEXT,
                        activebackground=accent, activeforeground="white")

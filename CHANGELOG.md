@@ -1,5 +1,17 @@
 # Changelog
 
+## Beta 1.64 — Unified Add & Collection Sections
+
+Windows-tested and approved by the maintainer, including artwork assignment and Settings layout corrections.
+
+- Games, Movies, Shows and Books use the Album-style Add layout with embedded provider search, checked-field review and staged artwork.
+- All five Add editors share the artwork panel, with thumbnails and visible Set Cover, Set Background and Toggle Extra controls. Games adds Logo options under More.
+- Drafts, search results and Show season choices remain available across tabs; clear draft/save feedback and discard safeguards are retained.
+- Consistent duplicate warnings for Games, Books and Albums allow another copy or edition.
+- Settings can hide collection sections from navigation, dashboard and unified History while preserving saved collection and session data.
+- Settings backup/recovery and maintenance actions use grouped, equal-width buttons with consistent spacing.
+- Beta 1.63 Enter/keypad Enter handling and album previews retained.
+
 ## Beta 1.63 — Ownership, Activity & Streamlined Albums
 
 Windows-tested and approved by the maintainer, including the corrected full patch.

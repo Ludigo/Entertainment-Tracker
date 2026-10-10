@@ -2,7 +2,7 @@
 from window_style import install as polish_dialog
 import math
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from database import connection
 from theme import BG, PANEL, PANEL_ALT, TEXT, MUTED, BORDER
 from utils import format_time, parse_time
@@ -325,6 +325,7 @@ def open_rich_editor(parent, kind, item_id, accent, refresh):
         except Exception as exc:
             status.configure(text=f'Could not save: {exc}')
             return
+        messagebox.showinfo("Metadata saved", "Metadata saved successfully.", parent=window)
         finish()
         refresh()
 

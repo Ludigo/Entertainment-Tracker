@@ -27,8 +27,8 @@ def duplicates(kind, values):
     return matches
 
 
-def create_media(kind, raw_values, cover=None, background=None, extras=()):
-    if kind not in ('movies','shows'):raise ValueError('Invalid category')
+def create_media(kind, raw_values, cover=None, background=None, extras=(), lock_roles=None):
+    if kind not in ('movies','shows','books'):raise ValueError('Invalid category')
     from add_game_metadata import validated_cover, image_digest
     from media_naming import clean_name
     values=parse_values(kind,raw_values)
@@ -49,6 +49,11 @@ def create_media(kind, raw_values, cover=None, background=None, extras=()):
                                    (kind,item_id,path,image['w'],image['h'],image['source']))
             connection.execute(f'UPDATE {kind} SET cover_path=?,background_path=? WHERE id=?',
                                (paths.get(image_digest(cover)) if cover else None,paths.get(image_digest(background)) if background else None,item_id))
+            from artwork_preferences import lock_key
+            for role in ('cover_path','background_path'):
+                image=cover if role=='cover_path' else background
+                if image and (lock_roles or {}).get(role):
+                    connection.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (lock_key(kind,item_id,role),'1'))
         return item_id
     except Exception:
         for target in created:target.unlink(missing_ok=True)
@@ -121,91 +126,8 @@ def populated(value):
 
 
 def open_add_media(parent, kind, accent, refresh, initial_values=None):
-    from add_game_metadata import choose_local_cover, preview_cover, choose_artwork, image_digest
-    if kind not in ('movies','shows'):raise ValueError('Invalid category')
-    win=tk.Toplevel(parent);polish_dialog(win);win.title('Add '+('Movie' if kind=='movies' else 'Show'))
-    win.geometry('640x740');win.minsize(480,520);win.configure(bg=PANEL);win.transient(parent.winfo_toplevel())
-    previous=win.grab_current();win.grab_set()
-    stage={'cover':None,'background':None,'extras':[],'available':[]}
-    session={'query':'','results':[],'details':{},'selected':None,'season':None}
-    closed={'value':False};widgets={};variables={}
-    def signature():
-        return (tuple(raw().items()),tuple(image_digest(stage[k]) if stage[k] else None for k in ('cover','background')),tuple(image_digest(i) for i in stage['extras']))
-    def finish():
-        closed['value']=True;win.destroy()
-        if previous is not None:
-            try:
-                if previous.winfo_exists():previous.grab_set()
-            except tk.TclError:pass
-    def close(event=None):
-        if signature()!=initial and not messagebox.askyesno('Unsaved Changes','Discard the unsaved metadata and artwork?',parent=win):return 'break'
-        finish();return 'break'
-    win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',close)
-    tk.Label(win,text='Find metadata first, or enter your details manually.',bg=PANEL,fg=TEXT,font=('Arial',13,'bold')).pack(anchor='w',padx=18,pady=12)
-    top=tk.Frame(win,bg=PANEL);top.pack(fill='x',padx=18)
-    status=tk.StringVar(value='Nothing is saved until you press Save.')
-    tk.Button(top,text='Find on TMDB…',command=lambda:open_search(win,kind,accent,raw,apply,stage,session),bg=accent,fg='white',relief='flat',pady=8).pack(side='left')
-    art=tk.Menubutton(top,text='Artwork ▾',bg=PANEL_ALT,fg=TEXT,relief='flat',pady=8,padx=14);art.pack(side='left',padx=8)
-    menu=tk.Menu(art,tearoff=False);art.configure(menu=menu)
-    def summary():status.set('Staged: '+('cover' if stage['cover'] else 'no cover')+' · '+('background' if stage['background'] else 'no background')+f" · {len(stage['extras'])} extra images. Save to keep them.")
-    def local(role):
-        try:
-            image=choose_local_cover(win,role.title())
-            if image:stage[role]=image;summary()
-        except Exception as e:messagebox.showerror('Artwork',str(e),parent=win)
-    def clear(role):stage[role]=None;summary()
-    def choices():
-        def chosen(cover,extras,roles):stage.update(cover=cover,background=roles['background_path'],extras=extras);summary()
-        choose_artwork(win,accent,stage['available'],stage['cover'],stage['extras'],chosen,roles={'background_path':stage['background']},media_label='Movie' if kind=='movies' else 'Show',role_keys=('background_path',))
-    menu.add_command(label='Review available artwork…',command=choices)
-    for role in ('cover','background'):
-        menu.add_command(label='Choose local '+role+'…',command=lambda r=role:local(r))
-        menu.add_command(label='Preview '+role,command=lambda r=role:preview_cover(win,stage[r],r.title()))
-        menu.add_command(label='Clear '+role,command=lambda r=role:clear(r))
-    area=tk.Frame(win,bg=PANEL);area.pack(fill='both',expand=True,padx=18,pady=10)
-    canvas=tk.Canvas(area,bg=PANEL,highlightthickness=0);bar=ttk.Scrollbar(area,command=canvas.yview);bar.pack(side='right',fill='y');canvas.configure(yscrollcommand=bar.set);canvas.pack(side='left',fill='both',expand=True)
-    form=tk.Frame(canvas,bg=PANEL);ident=canvas.create_window(0,0,window=form,anchor='nw')
-    form.bind('<Configure>',lambda e:canvas.configure(scrollregion=canvas.bbox('all')));canvas.bind('<Configure>',lambda e:canvas.itemconfigure(ident,width=e.width))
-    for key,label,typ in FIELDS[kind]:
-        if typ=='bool':
-            var=tk.IntVar(master=win,value=0);variables[key]=var;w=tk.Checkbutton(form,text=label,variable=var,bg=PANEL,fg=TEXT,selectcolor=PANEL_ALT)
-        else:
-            tk.Label(form,text=label,bg=PANEL,fg=TEXT).pack(anchor='w',pady=(8,2))
-            w=tk.Text(form,height=4,bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT) if typ=='multiline' else tk.Entry(form,bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT)
-            if typ!='multiline':w.insert(0,'0:00:00' if typ=='duration' else '0' if typ=='count' else '')
-        w.pack(fill='x',pady=2);widgets[key]=w
-    def wheel(e):
-        if win.grab_current() is not win:return
-        canvas.yview_scroll(-3 if getattr(e,'num',0)==4 or getattr(e,'delta',0)>0 else 3,'units');return 'break'
-    for w in [canvas,form,*form.winfo_children()]:
-        for ev in ('<MouseWheel>','<Button-4>','<Button-5>'):w.bind(ev,wheel,add='+')
-    def raw():return {k:variables[k].get() if t=='bool' else widgets[k].get('1.0','end-1c') if t=='multiline' else widgets[k].get() for k,_,t in FIELDS[kind]}
-    def apply(values,cover,background,extras,available):
-        for key,value in values.items():
-            if key not in widgets:continue
-            w=widgets[key];multi=next(t for k,_,t in FIELDS[kind] if k==key)=='multiline'
-            w.delete('1.0' if multi else 0,'end');w.insert('1.0' if multi else 0,str(value))
-        stage.update(cover=cover,background=background,extras=extras,available=available);summary()
-    if initial_values:
-        apply({key:value for key,value in initial_values.items() if key in widgets and key not in variables},None,None,[],[])
-    initial=signature()
-    def save():
-        try:
-            values=parse_values(kind,raw());matches=duplicates(kind,values)
-            if matches:
-                labels='\n'.join(str(r[1])+(f' — Season {r[3]}' if kind=='shows' else '')+(f' ({r[2]})' if r[2] else '') for r in matches[:8])
-                if not messagebox.askyesno('Possible duplicate','Already in your library:\n'+labels+'\n\nAdd another copy anyway?',parent=win):return
-            create_media(kind,raw(),stage['cover'],stage['background'],stage['extras'])
-        except InvalidField as e:
-            status.set(str(e));widgets[e.key].focus_set();return
-        except Exception as e:status.set('Save failed: '+str(e));return
-        finish();refresh()
-    footer=tk.Frame(win,bg=PANEL);footer.pack(fill='x',padx=18,pady=12)
-    tk.Label(footer,textvariable=status,bg=PANEL,fg=MUTED,wraplength=400,justify='left').pack(fill='x')
-    tk.Button(footer,text='Save',command=save,bg=accent,fg='white',relief='flat',padx=20,pady=8).pack(side='right',pady=8)
-    tk.Button(footer,text='Cancel',command=close,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=16,pady=8).pack(side='right',padx=8)
-    widgets['name'].focus_set()
-    return win
+    from unified_add import open_add
+    return open_add(parent,kind,accent,refresh,initial_values)
 
 
 def open_search(parent,kind,accent,current,on_apply,stage,session):
