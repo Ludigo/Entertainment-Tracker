@@ -173,7 +173,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
     tk.Label(toolbar,text='Minimum width:',bg=BG,fg=TEXT).pack(side='left',padx=(14,5))
     ttk.Combobox(toolbar,textvariable=minimum_width,values=list(minimum_widths),
                  state='readonly',width=13).pack(side='left')
-    role_values=['All roles','Current Cover'] + (['Current Logo','Current Background'] if kind=='games' else [])
+    role_values=['All roles','Current Cover'] + (['Current Logo','Current Background'] if kind=='games' else ['Current Background'] if kind=='movies' else [])
     saved_role=get_setting('artwork_filter_role_'+kind,'All roles')
     role_filter=tk.StringVar(value=saved_role if saved_role in role_values else 'All roles')
     ttk.Combobox(toolbar,textvariable=role_filter,values=role_values,state='readonly',width=19).pack(side='left',padx=10)
@@ -226,6 +226,9 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             from details import _game_art_paths
             logo,background=_game_art_paths(item_id)
             assigned.update({'Current Logo':logo,'Current Background':background})
+        if kind=='movies':
+            from movie_cinematic import background_path
+            assigned['Current Background']=background_path(item_id)
         return assigned
     def assignment_labels(entry,assigned):
         paths={entry.get('path'),entry.get('origin_path')} - {None}
@@ -492,7 +495,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         display()
         info.set(f'{saved} saved · {already_saved} already local · {missing} missing skipped. Continue choosing artwork or close when finished.')
     def set_role(role):
-        if kind != 'games': return
+        if kind != 'games' and not (kind=='movies' and role=='background_path'): return
         if len(selected['indices'])>1:
             messagebox.showinfo('Choose One Image','Click one image to assign its artwork role.',parent=win)
             return
@@ -506,8 +509,12 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             if not e['path']:
                 e['path']=store(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],set_cover=False)
                 win._artwork_changed=True
-            from details import _set_game_art
-            _set_game_art(item_id,role,e['path'])
+            if kind=='movies':
+                from movie_cinematic import set_background
+                set_background(item_id,e['path'])
+            else:
+                from details import _set_game_art
+                _set_game_art(item_id,role,e['path'])
             win._artwork_changed=True
             display()
             info.set('Logo saved.' if role=='logo_path' else 'Background saved.')
@@ -532,6 +539,9 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             logo,bg=_game_art_paths(item_id)
             if path==logo:refs.append('logo')
             if path==bg:refs.append('background')
+        if kind=='movies':
+            from movie_cinematic import background_path
+            if path==background_path(item_id):refs.append('background')
         try:
             for role,label in [('cover_path','cover'),('logo_path','logo'),('background_path','background')]:
                 if label in refs:require_unlocked(kind,item_id,role)
@@ -544,6 +554,8 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
                 connection.execute('DELETE FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',(kind,item_id,path))
                 if 'cover' in refs:
                     connection.execute(f'UPDATE {kind} SET cover_path=NULL WHERE id=? AND cover_path=?',(item_id,path))
+                if kind=='movies' and 'background' in refs:
+                    connection.execute('UPDATE movies SET background_path=NULL WHERE id=? AND background_path=?',(item_id,path))
                 if kind=='games':
                     from details import _set_game_art
                     if 'logo' in refs:_set_game_art(item_id,'logo_path',None)
@@ -563,7 +575,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             require_unlocked(kind,item_id,role)
             label={'cover_path':'Current Cover','logo_path':'Current Logo',
                    'background_path':'Current Background'}.get(role)
-            if label is None or (kind!='games' and role!='cover_path'):return
+            if label is None or (kind!='games' and role!='cover_path' and not (kind=='movies' and role=='background_path')):return
             path=current_assignments().get(label)
             # Keep older assigned images available in the collection after clearing.
             for e in entries:
@@ -573,6 +585,9 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             if role=='cover_path':
                 with connection:
                     connection.execute(f'UPDATE {kind} SET cover_path=NULL WHERE id=?',(item_id,))
+            elif kind=='movies' and role=='background_path':
+                from movie_cinematic import set_background
+                set_background(item_id,None)
             elif kind=='games' and role in ('logo_path','background_path'):
                 from details import _set_game_art
                 _set_game_art(item_id,role,None)
@@ -642,15 +657,19 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
     if kind=='games':
         for label,role in [('Set as Logo','logo_path'),('Set as Background','background_path')]:
             assign_menu.add_command(label=label,command=lambda r=role:set_role(r))
+    if kind=='movies':
+        assign_menu.add_command(label='Set as Background',command=lambda:set_role('background_path'))
     clear_menu=tk.Menu(assign_menu,tearoff=False,bg=PANEL_ALT,fg=TEXT,
                        activebackground=accent,activeforeground='white')
     clear_menu.add_command(label='Clear Cover',command=lambda:clear_assignment('cover_path'))
     if kind=='games':
         for label,role in [('Clear Logo','logo_path'),('Clear Background','background_path')]:
             clear_menu.add_command(label=label,command=lambda r=role:clear_assignment(r))
+    if kind=='movies':
+        clear_menu.add_command(label='Clear Background',command=lambda:clear_assignment('background_path'))
     protection_menu=tk.Menu(assign_menu,tearoff=False,bg=PANEL_ALT,fg=TEXT,
                             activebackground=accent,activeforeground='white')
-    for label,role in [('Cover','cover_path')]+([('Logo','logo_path'),('Background','background_path')] if kind=='games' else []):
+    for label,role in [('Cover','cover_path')]+([('Logo','logo_path'),('Background','background_path')] if kind=='games' else [('Background','background_path')] if kind=='movies' else []):
         protection_menu.add_command(label='Lock / Unlock '+label,command=lambda r=role:toggle_protection(r))
     assign_menu.add_cascade(label='Protection',menu=protection_menu)
     assign_menu.add_separator()

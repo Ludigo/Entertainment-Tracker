@@ -321,12 +321,12 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
     # Always use the cinematic game layout, even when no background artwork
     # has been assigned. Otherwise the right pane still uses the cinematic
     # renderer but loses its page canvas, leaving an empty-looking screen.
-    full_art = kind == 'games' and PIL_AVAILABLE
+    full_art = kind in ('games','movies') and PIL_AVAILABLE
     if full_art:
         page = tk.Canvas(parent, bg=BG, bd=0, highlightthickness=0)
         page.pack(fill='both', expand=True)
         page_state = {'photo': None, 'size': None, 'source': None, 'raster': None}
-        art_file = _absolute_cover(_game_art_paths(item_id)[1])
+        art_file = _absolute_cover(record.get('background_path') if kind=='movies' else _game_art_paths(item_id)[1])
         try:
             if art_file is not None:
                 with Image.open(art_file) as image:
@@ -361,7 +361,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         page_container = page
 
     top = tk.Frame(page_container, bg=BG)
-    if kind == 'games' and full_art:
+    if full_art:
         top.pack(fill="x", padx=(40, 34), pady=(12, 10))
     else:
         top.pack(fill="x", padx=40, pady=(28, 18))
@@ -372,7 +372,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                                cursor='hand2')
     tk.Button(top, text="← Back", command=on_back, bg=PANEL_ALT,
               **header_button_style).pack(side="left")
-    if kind == 'games' and full_art:
+    if full_art:
         # The toolbar uses a crop of the fixed page image; buttons stay interactive.
         toolbar_art = {'image': None}
         toolbar_back = tk.Label(top, bd=0, highlightthickness=0)
@@ -541,7 +541,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         old = _absolute_cover(row[0])
         cursor.execute(f"UPDATE {table} SET cover_path = NULL WHERE id = ?", (item_id,))
         connection.commit()
-        if old:
+        if old and kind != 'movies':
             try:
                 old.unlink()
             except OSError:
@@ -840,8 +840,8 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         body.after_idle(arrange_body)
     else:
         right_holder.grid(row=0, column=1, sticky="nsew")
-    if kind == 'games' and PIL_AVAILABLE:
-        # Games do not use the old nested scroll panel at all.
+    if kind == 'movies' or (kind == 'games' and PIL_AVAILABLE):
+        # Cinematic details own their scroll surface.
         right = right_holder
         scroll = None
     else:
@@ -1387,6 +1387,10 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         cinematic.after_idle(initial_draw)
         page.bind('<Configure>', lambda e: cinematic.after_idle(
             lambda: draw_cinematic(force=True) if cinematic.winfo_exists() else None), add='+')
+    elif kind == 'movies':
+        from movie_cinematic import render
+        render(right, record, accent, page if full_art else None,
+               page_state if full_art else None)
     else:
         tk.Label(right, text=title, font=('Arial',23,'bold'),bg=PANEL,fg=TEXT,
                  wraplength=560,justify='left').pack(anchor='w')
@@ -1408,14 +1412,14 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
             from game_gallery import GameGallery
             gallery = GameGallery(right, item_id, accent)
             gallery.pack(fill="x", pady=(18, 0))
-    if kind != "games" or not PIL_AVAILABLE:
+    if kind not in ("games", "movies") or (kind == "games" and not PIL_AVAILABLE):
         tk.Label(right, text="DESCRIPTION", bg=PANEL, fg=accent,
                  font=("Arial", 10, "bold")).pack(anchor="w", pady=(18, 6))
         tk.Label(right, text=record.get("description") or "No description saved yet.",
                  bg=PANEL, fg=TEXT, wraplength=1050, justify="left",
                  anchor="w").pack(anchor="w", fill="x")
 
-    if kind != "games" and record.get("notes"):
+    if kind not in ("games", "movies") and record.get("notes"):
         tk.Label(right, text="PERSONAL NOTES", bg=PANEL, fg=accent,
                  font=("Arial", 10, "bold")).pack(anchor="w", pady=(18, 6))
         tk.Label(right, text=record["notes"], bg=PANEL, fg=TEXT,

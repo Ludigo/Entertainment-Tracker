@@ -35,6 +35,11 @@ def install_artwork_guards():
             WHEN NEW.cover_path IS NOT OLD.cover_path AND
               (SELECT value FROM settings WHERE key='art_lock_{kind}_'||OLD.id||'_cover_path')='1'
             BEGIN SELECT RAISE(ABORT, 'Artwork is locked. Unlock its role in Artwork Manager first.'); END''')
+    connection.execute('''CREATE TRIGGER IF NOT EXISTS protect_movies_background
+        BEFORE UPDATE OF background_path ON movies
+        WHEN NEW.background_path IS NOT OLD.background_path AND
+          (SELECT value FROM settings WHERE key='art_lock_movies_'||OLD.id||'_background_path')='1'
+        BEGIN SELECT RAISE(ABORT, 'Artwork is locked. Unlock its role in Artwork Manager first.'); END''')
     for role in ('logo_path', 'background_path'):
         connection.execute(f'''CREATE TRIGGER IF NOT EXISTS protect_game_{role}
             BEFORE UPDATE OF {role} ON game_detail_art
@@ -76,6 +81,9 @@ def relink_artwork(kind, item_id, old_path, filename):
     if kind not in CATEGORIES:raise ValueError('Invalid category')
     row=connection.execute(f'SELECT cover_path FROM {kind} WHERE id=?',(item_id,)).fetchone()
     assigned={'cover_path':row[0] if row else None}
+    if kind=='movies':
+        row=connection.execute('SELECT background_path FROM movies WHERE id=?',(item_id,)).fetchone()
+        if row:assigned['background_path']=row[0]
     if kind=='games':
         row=connection.execute('SELECT logo_path,background_path FROM game_detail_art WHERE game_id=?',(item_id,)).fetchone()
         if row:assigned.update(zip(('logo_path','background_path'),row))
@@ -95,7 +103,9 @@ def relink_artwork(kind, item_id, old_path, filename):
         if 'cover_path' in roles:
             connection.execute(f'UPDATE {kind} SET cover_path=? WHERE id=?',(new_path,item_id))
         for role in roles:
-            if role!='cover_path':connection.execute(f'UPDATE game_detail_art SET {role}=? WHERE game_id=?',(new_path,item_id))
+            if role!='cover_path':
+                table,id_column=('movies','id') if kind=='movies' else ('game_detail_art','game_id')
+                connection.execute(f'UPDATE {table} SET {role}=? WHERE {id_column}=?',(new_path,item_id))
         if new_path!=old_path:
             connection.execute('DELETE FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',(kind,item_id,old_path))
         if favourite:
