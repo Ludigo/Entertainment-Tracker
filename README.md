@@ -1,4 +1,6 @@
-# Entertainment Tracker v19
+# Entertainment Tracker v1.0
+
+Stable product version: **v1.0** (originally published under the legacy `v19` tag). Development builds use **Beta 1.54**, **Beta 1.55**, and subsequent numbers on the [`beta` branch](https://github.com/Ludigo/Entertainment-Tracker/tree/beta).
 
 A personal, non-commercial Windows desktop application built with Python.
 
@@ -33,7 +35,7 @@ The app creates its local `data/entertainment.db` database automatically when la
 
 Optional process-based game tracking uses `psutil` (install with `python -m pip install psutil`).
 
-## v19 — Data Safety & Reliability Update
+## v1.0 — Data Safety & Reliability Update
 
 This release publishes the completed Phase 1 version, Windows-tested by the maintainer.
 
