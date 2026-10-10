@@ -582,7 +582,9 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     # -------------------------
 
     def add_show():
-        show_form()
+        from add_media_metadata import open_add_media
+        open_add_media(shows_window, 'shows', get_setting('accent_color', '#B23A48'),
+                       lambda: load_shows(search_entry.get()))
 
 
     # -------------------------
@@ -720,3 +722,4 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
                 break
 
     return shows_window
+

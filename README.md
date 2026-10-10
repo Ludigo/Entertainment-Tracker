@@ -1,6 +1,6 @@
 # Entertainment Tracker v1.0
 
-This is the **beta development branch**. The latest Windows-tested and approved source is **Beta 1.58 — Cinematic Books**. The next candidate is **Beta 1.59**; subsequent builds continue Beta 1.60, Beta 1.61, and so on. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
+This is the **beta development branch**. The latest Windows-tested and approved source is **Beta 1.59 — Metadata-first Movies and Shows**. The next candidate is **Beta 1.60**; subsequent builds continue Beta 1.61, Beta 1.62, and so on. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
 
 A personal, non-commercial Windows desktop application built with Python.
 
@@ -76,3 +76,13 @@ Windows-tested and approved by the maintainer.
 - Optional Page reached field in Metadata and a page-progress bar. Existing unknown progress stays unrecorded.
 - Completed Books and Shows display 100% progress while retaining saved page and episode counts.
 - Existing embedded reading timer retained.
+
+## Beta 1.59 — Metadata-first Movies and Shows
+
+Windows-tested and approved by the maintainer.
+
+- Full Add Movie/Show metadata forms with TMDB search and selected-field review protecting entered values.
+- Staged local/provider cover and background choices, previews and extra artwork; Save commits metadata and artwork together and Cancel discards the draft.
+- Show season selection with supplied episode counts and runtime only when every episode runtime is available.
+- Duplicate title/year/season warnings allow an explicitly chosen additional copy.
+- Search results, selected result and season remain available during artwork review in the Add session.

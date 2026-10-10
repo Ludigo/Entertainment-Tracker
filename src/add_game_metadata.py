@@ -374,12 +374,12 @@ def artwork_role_option(parent,text,variable,value):
     return row
 
 
-def choose_artwork(parent,accent,available,cover,extras,on_choose,roles=None):
+def choose_artwork(parent,accent,available,cover,extras,on_choose,roles=None, *, media_label="Game", role_keys=("background_path","logo_path")):
     """All choices are downloaded bytes; filters never discard selections."""
     images=list(available);seen={image_digest(image) for image in images}
     for image in ([cover] if cover else [])+list(extras)+[image for image in (roles or {}).values() if image]:
         if image_digest(image) not in seen:images.append(image);seen.add(image_digest(image))
-    win=tk.Toplevel(parent);polish_dialog(win);win.title('Choose Available Game Artwork')
+    win=tk.Toplevel(parent);polish_dialog(win);win.title('Choose Available '+media_label+' Artwork')
     win.geometry('900x720');win.minsize(650,500);win.configure(bg=BG);win.transient(parent.winfo_toplevel())
     previous=win.grab_current();win.grab_set()
     def close(event=None):
@@ -402,7 +402,7 @@ def choose_artwork(parent,accent,available,cover,extras,on_choose,roles=None):
     role_choices={key:tk.StringVar(value=image_digest(image) if image else '') for key,image in (roles or {}).items()
                   if key in ('background_path','logo_path')}
     if roles is not None:
-        for key in ('background_path','logo_path'):role_choices.setdefault(key,tk.StringVar(value=''))
+        for key in role_keys:role_choices.setdefault(key,tk.StringVar(value=''))
     selected={image_digest(image):tk.BooleanVar(value=any(image_digest(extra)==image_digest(image) for extra in extras)) for image in images}
     toolbar=tk.Frame(win,bg=BG);toolbar.pack(fill='x',padx=16)
     tk.Label(toolbar,text='Minimum width:',bg=BG,fg=TEXT).pack(side='left')
@@ -655,3 +655,4 @@ def open_search(parent,accent,current_values,on_apply):
     tk.Button(footer,text='Close / Manual Entry',command=close,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=14,pady=8).pack(side='right',padx=8)
     entry.focus_set();state['poll_id']=win.after(100,poll)
     return win
+
