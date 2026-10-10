@@ -415,13 +415,20 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
         modal.geometry("540x740")
         modal.resizable(False, False)
         pending={'metadata':{},'cover':None,'extras':[],'roles':{'background_path':None,'logo_path':None},'available':[]}
-        protect_cover=tk.BooleanVar(value=False)
+        from add_game_metadata import METADATA_FIELDS,load_game_artwork
+        from artwork_preferences import is_locked
+        protect_cover=tk.BooleanVar(value=is_locked('games',game_id,'cover_path') if game_id is not None else False)
+        protect_roles={key:tk.BooleanVar(value=is_locked('games',game_id,key) if game_id is not None else False)
+                       for key in ('background_path','logo_path')}
+        expected_art={}
+        if game_id is not None:
+            pending['metadata']={key:record.get(key) for key in METADATA_FIELDS}
+            pending['cover'],pending['roles'],pending['available'],expected_art=load_game_artwork(game_id)
         tk.Label(modal, text="Edit Game" if game_id is not None else "Add Game",
                  font=("Arial", 18, "bold")).pack(pady=(8, 12))
 
-        if game_id is None:
-            tk.Button(modal,text='Find on Steam…',command=lambda:find_on_steam(),bg=PANEL_ALT,fg=TEXT,
-                      relief='flat',padx=12,pady=6).pack(anchor='w',padx=15,pady=(0,8))
+        tk.Button(modal,text='Find on Steam…',command=lambda:find_on_steam(),bg=PANEL_ALT,fg=TEXT,
+                  relief='flat',padx=12,pady=6).pack(anchor='w',padx=15,pady=(0,8))
 
         def field(label, value="", width=40):
             tk.Label(modal, text=label).pack(anchor="w", padx=15)
@@ -454,90 +461,99 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
             tk.Checkbutton(checks, text=label, variable=variable,
                            anchor="w").pack(anchor="w", pady=3)
 
-        if game_id is None:
-            cover_row=tk.Frame(modal)
-            cover_row.pack(fill='x',padx=15,pady=(3,6))
-            staged_info=tk.StringVar(value='Manual entry · No cover selected')
-            tk.Label(cover_row,textvariable=staged_info,wraplength=330,justify='left').pack(side='left',fill='x',expand=True)
-            cover_button=tk.Menubutton(cover_row,text='Artwork ▾',bg=PANEL_ALT,fg=TEXT,relief='flat',padx=10,pady=6)
-            cover_button.pack(side='right')
-            cover_menu=tk.Menu(cover_button,tearoff=False,bg=PANEL_ALT,fg=TEXT)
-            cover_button.configure(menu=cover_menu)
-            def update_staged_info():
-                cover=pending['cover']
-                text=f"{len(pending['metadata'])} metadata fields staged" if pending['metadata'] else 'Manual entry'
-                staged_info.set(text+(' · Cover selected' if cover else ' · No cover selected')+
-                                f" · {len(pending['extras'])} extra images"+(' · Cover protected' if cover and protect_cover.get() else ''))
-                staged_info.set(staged_info.get()+'\nBackground: '+('selected' if pending['roles']['background_path'] else 'none')+
-                                ' · Logo: '+('selected' if pending['roles']['logo_path'] else 'none'))
-            def choose_role(role):
-                from add_game_metadata import choose_local_cover,preview_cover
-                label='Background' if role=='background_path' else 'Logo'
-                try:
-                    image=choose_local_cover(modal,label)
-                    if image:
-                        pending['roles'][role]=image;update_staged_info();preview_cover(modal,image,label)
-                except Exception as exc:messagebox.showerror('Game '+label,str(exc))
-            def preview_role(role):
-                from add_game_metadata import preview_cover
-                label='Background' if role=='background_path' else 'Logo'
-                if pending['roles'][role]:preview_cover(modal,pending['roles'][role],label)
-                else:messagebox.showinfo('Game '+label,'Choose an image first.')
-            def clear_role(role):
-                pending['roles'][role]=None;update_staged_info()
-            def staged_artwork():
-                from add_game_metadata import choose_artwork
-                def chosen(cover,extras,roles):
-                    pending['cover']=cover;pending['extras']=extras;pending['roles']=roles
-                    if not cover:protect_cover.set(False)
-                    update_staged_info()
-                choose_artwork(modal,get_setting('accent_color','#B23A48'),pending['available'],pending['cover'],
-                               pending['extras'],chosen,roles=pending['roles'])
-            def local_cover():
-                from add_game_metadata import choose_local_cover,preview_cover
-                try:
-                    cover=choose_local_cover(modal)
-                    if cover:
-                        pending['cover']=cover;update_staged_info();preview_cover(modal,cover)
-                except Exception as exc:messagebox.showerror('Game Cover',str(exc))
-            def review_cover():
-                from add_game_metadata import preview_cover
-                if pending['cover']:preview_cover(modal,pending['cover'])
-                else:messagebox.showinfo('Game Cover','Choose a cover from Steam or your PC first.')
-            def clear_cover():
-                pending['cover']=None;protect_cover.set(False);update_staged_info()
-            cover_menu.add_command(label='Choose from PC…',command=local_cover)
-            cover_menu.add_command(label='Preview selected cover',command=review_cover)
-            cover_menu.add_command(label='Clear selected cover',command=clear_cover)
-            cover_menu.add_checkbutton(label='Protect selected cover after saving',variable=protect_cover,command=update_staged_info)
-            cover_menu.add_command(label='Review staged artwork / remove extras…',command=staged_artwork)
-            for role,label in [('background_path','Background'),('logo_path','Logo')]:
-                submenu=tk.Menu(cover_menu,tearoff=False,bg=PANEL_ALT,fg=TEXT)
-                submenu.add_command(label='Choose from PC…',command=lambda role=role:choose_role(role))
-                submenu.add_command(label='Preview selected image',command=lambda role=role:preview_role(role))
-                submenu.add_command(label='Clear selected image',command=lambda role=role:clear_role(role))
-                cover_menu.add_cascade(label=label,menu=submenu)
-            def import_current():
-                return dict(pending['metadata'],name=title_entry.get(),platform=platform_entry.get(),
-                            description=description_entry.get('1.0','end-1c'),_cover=pending['cover'],
-                            _extras=pending['extras'],_lock_cover=protect_cover.get(),_roles=pending['roles'],_available=pending['available'])
-            def apply_import(updates,cover,extras=(),lock_cover=None,roles=None,available=()):
-                from add_game_metadata import METADATA_FIELDS
-                for key,widget in [('name',title_entry),('platform',platform_entry)]:
-                    if key in updates:widget.delete(0,tk.END);widget.insert(0,str(updates[key]))
-                if 'description' in updates:
-                    description_entry.delete('1.0',tk.END);description_entry.insert('1.0',updates['description'])
-                pending['metadata'].update({key:value for key,value in updates.items() if key in METADATA_FIELDS})
-                if cover:pending['cover']=cover
-                pending['extras']=list(extras)
-                if lock_cover is not None:protect_cover.set(bool(lock_cover))
-                if roles is not None:pending['roles']={key:roles.get(key) for key in ('background_path','logo_path')}
-                from add_game_metadata import image_digest
-                pending['available']=list({image_digest(image):image for image in pending['available']+list(available)}.values())
+        cover_row=tk.Frame(modal)
+        cover_row.pack(fill='x',padx=15,pady=(3,6))
+        staged_info=tk.StringVar(value='Manual entry · No cover selected')
+        tk.Label(cover_row,textvariable=staged_info,wraplength=330,justify='left').pack(side='left',fill='x',expand=True)
+        cover_button=tk.Menubutton(cover_row,text='Artwork ▾',bg=PANEL_ALT,fg=TEXT,relief='flat',padx=10,pady=6)
+        cover_button.pack(side='right')
+        cover_menu=tk.Menu(cover_button,tearoff=False,bg=PANEL_ALT,fg=TEXT)
+        cover_button.configure(menu=cover_menu)
+        def update_staged_info():
+            cover=pending['cover']
+            text=f"{len(pending['metadata'])} metadata fields staged" if pending['metadata'] else 'Manual entry'
+            staged_info.set(text+(' · Cover selected' if cover else ' · No cover selected')+
+                            f" · {len(pending['extras'])} extra images"+(' · Cover protected' if cover and protect_cover.get() else ''))
+            staged_info.set(staged_info.get()+'\nBackground: '+('selected' if pending['roles']['background_path'] else 'none')+
+                            ' · Logo: '+('selected' if pending['roles']['logo_path'] else 'none'))
+        def choose_role(role):
+            from add_game_metadata import choose_local_cover,preview_cover
+            label='Background' if role=='background_path' else 'Logo'
+            try:
+                image=choose_local_cover(modal,label)
+                if image:
+                    pending['roles'][role]=image;update_staged_info();preview_cover(modal,image,label)
+            except Exception as exc:messagebox.showerror('Game '+label,str(exc))
+        def preview_role(role):
+            from add_game_metadata import preview_cover
+            label='Background' if role=='background_path' else 'Logo'
+            if pending['roles'][role]:preview_cover(modal,pending['roles'][role],label)
+            else:messagebox.showinfo('Game '+label,'Choose an image first.')
+        def clear_role(role):
+            pending['roles'][role]=None;update_staged_info()
+        def staged_artwork():
+            from add_game_metadata import choose_artwork
+            def chosen(cover,extras,roles):
+                pending['cover']=cover;pending['extras']=extras;pending['roles']=roles
+                if not cover:protect_cover.set(False)
                 update_staged_info()
-            def find_on_steam():
-                from add_game_metadata import open_search
-                open_search(modal,get_setting('accent_color','#B23A48'),import_current,apply_import)
+            choose_artwork(modal,get_setting('accent_color','#B23A48'),pending['available'],pending['cover'],
+                           pending['extras'],chosen,roles=pending['roles'])
+        def local_cover():
+            from add_game_metadata import choose_local_cover,preview_cover
+            try:
+                cover=choose_local_cover(modal)
+                if cover:
+                    pending['cover']=cover;update_staged_info();preview_cover(modal,cover)
+            except Exception as exc:messagebox.showerror('Game Cover',str(exc))
+        def review_cover():
+            from add_game_metadata import preview_cover
+            if pending['cover']:preview_cover(modal,pending['cover'])
+            else:messagebox.showinfo('Game Cover','Choose a cover from Steam or your PC first.')
+        def clear_cover():
+            pending['cover']=None;protect_cover.set(False);update_staged_info()
+        def manual_metadata():
+            from add_game_metadata import edit_staged_metadata
+            def applied(values):pending['metadata'].update(values);update_staged_info()
+            edit_staged_metadata(modal,get_setting('accent_color','#B23A48'),pending['metadata'],applied)
+        cover_menu.add_command(label='Review / edit metadata…',command=manual_metadata)
+        cover_menu.add_command(label='Choose from PC…',command=local_cover)
+        cover_menu.add_command(label='Preview selected cover',command=review_cover)
+        cover_menu.add_command(label='Clear selected cover',command=clear_cover)
+        cover_menu.add_checkbutton(label='Protect selected cover after saving',variable=protect_cover,command=update_staged_info,
+                                   state='disabled' if game_id is not None and protect_cover.get() else 'normal')
+        cover_menu.add_command(label='Review staged artwork / remove extras…',command=staged_artwork)
+        for role,label in [('background_path','Background'),('logo_path','Logo')]:
+            submenu=tk.Menu(cover_menu,tearoff=False,bg=PANEL_ALT,fg=TEXT)
+            submenu.add_command(label='Choose from PC…',command=lambda role=role:choose_role(role))
+            submenu.add_command(label='Preview selected image',command=lambda role=role:preview_role(role))
+            submenu.add_command(label='Clear selected image',command=lambda role=role:clear_role(role))
+            submenu.add_checkbutton(label='Protect after saving',variable=protect_roles[role],command=update_staged_info,
+                                    state='disabled' if game_id is not None and protect_roles[role].get() else 'normal')
+            cover_menu.add_cascade(label=label,menu=submenu)
+        def import_current():
+            return dict(pending['metadata'],name=title_entry.get(),platform=platform_entry.get(),
+                        description=description_entry.get('1.0','end-1c'),_cover=pending['cover'],
+                        _extras=pending['extras'],_lock_cover=protect_cover.get(),_roles=pending['roles'],_available=pending['available'],_editing=game_id is not None)
+        def apply_import(updates,cover,extras=(),lock_cover=None,roles=None,available=()):
+            from add_game_metadata import METADATA_FIELDS
+            for key,widget in [('name',title_entry),('platform',platform_entry)]:
+                if key in updates:widget.delete(0,tk.END);widget.insert(0,str(updates[key]))
+            if 'description' in updates:
+                description_entry.delete('1.0',tk.END);description_entry.insert('1.0',updates['description'])
+            pending['metadata'].update({key:value for key,value in updates.items() if key in METADATA_FIELDS})
+            if cover:pending['cover']=cover
+            pending['extras']=list(extras)
+            if lock_cover is not None:protect_cover.set(bool(lock_cover))
+            if roles is not None:pending['roles']={key:roles.get(key) for key in ('background_path','logo_path')}
+            from add_game_metadata import image_digest
+            pending['available']=list({image_digest(image):image for image in pending['available']+list(available)}.values())
+            update_staged_info()
+        def find_on_steam():
+            from add_game_metadata import open_search
+            open_search(modal,get_setting('accent_color','#B23A48'),import_current,apply_import)
+
+        update_staged_info()
 
         error = tk.Label(modal, text="", fg="#F19B9B", wraplength=400)
         error.pack(pady=3)
@@ -547,7 +563,8 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
             return (title_entry.get(), platform_entry.get(), price_entry.get(),
                     playtime_entry.get(), description_entry.get('1.0', 'end-1c'),
                     completed_var.get(), backlog_var.get(), started_var.get(),
-                    staged_signature(pending['metadata'],pending['cover'],pending['extras'],protect_cover.get(),pending['roles']))
+                    staged_signature(pending['metadata'],pending['cover'],pending['extras'],protect_cover.get(),pending['roles']),
+                    tuple((key,var.get()) for key,var in protect_roles.items()))
         original_values = current_form_values()
         modal.has_unsaved_changes = lambda: current_form_values() != original_values
 
@@ -581,15 +598,19 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
                 if matches:
                     if not confirm_duplicate(modal,matches,get_setting('accent_color','#B23A48')):
                         return
-                try:create_game(values,pending['metadata'],pending['cover'],pending['extras'],protect_cover.get(),pending['roles'])
+                try:create_game(values,pending['metadata'],pending['cover'],pending['extras'],protect_cover.get(),pending['roles'],
+                                {key:var.get() for key,var in protect_roles.items()})
                 except Exception as exc:
                     error.configure(text='Game could not be saved: '+str(exc))
                     return
             else:
-                cursor.execute(
-                    "UPDATE games SET name=?, platform=?, playtime=?, price_paid=?, "
-                    "completed=?, backlog=?, started=?, description=? WHERE id=?",
-                    values + (game_id,))
+                from add_game_metadata import update_game
+                metadata_changes={key:value for key,value in pending['metadata'].items() if value!=record.get(key)}
+                try:
+                    update_game(game_id,values,metadata_changes,pending['cover'],pending['extras'],pending['roles'],expected_art,
+                                {'cover_path':protect_cover.get(),**{key:var.get() for key,var in protect_roles.items()}})
+                except Exception as exc:
+                    error.configure(text='Game could not be saved: '+str(exc));return
             connection.commit()
             modal.close_saved()
             refresh_platforms()
