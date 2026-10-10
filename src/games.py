@@ -414,8 +414,13 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
         modal.title("Edit Game" if game_id is not None else "Add Game")
         modal.geometry("540x740")
         modal.resizable(False, False)
+        pending={'metadata':{},'cover':None}
         tk.Label(modal, text="Edit Game" if game_id is not None else "Add Game",
                  font=("Arial", 18, "bold")).pack(pady=(8, 12))
+
+        if game_id is None:
+            tk.Button(modal,text='Find on Steam…',command=lambda:find_on_steam(),bg=PANEL_ALT,fg=TEXT,
+                      relief='flat',padx=12,pady=6).pack(anchor='w',padx=15,pady=(0,8))
 
         def field(label, value="", width=40):
             tk.Label(modal, text=label).pack(anchor="w", padx=15)
@@ -448,13 +453,60 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
             tk.Checkbutton(checks, text=label, variable=variable,
                            anchor="w").pack(anchor="w", pady=3)
 
+        if game_id is None:
+            cover_row=tk.Frame(modal)
+            cover_row.pack(fill='x',padx=15,pady=(3,6))
+            staged_info=tk.StringVar(value='Manual entry · No cover selected')
+            tk.Label(cover_row,textvariable=staged_info,wraplength=330,justify='left').pack(side='left',fill='x',expand=True)
+            cover_button=tk.Menubutton(cover_row,text='Cover ▾',bg=PANEL_ALT,fg=TEXT,relief='flat',padx=10,pady=6)
+            cover_button.pack(side='right')
+            cover_menu=tk.Menu(cover_button,tearoff=False,bg=PANEL_ALT,fg=TEXT)
+            cover_button.configure(menu=cover_menu)
+            def update_staged_info():
+                cover=pending['cover']
+                text=f"{len(pending['metadata'])} metadata fields staged" if pending['metadata'] else 'Manual entry'
+                staged_info.set(text+(' · Cover selected' if cover else ' · No cover selected'))
+            def local_cover():
+                from add_game_metadata import choose_local_cover,preview_cover
+                try:
+                    cover=choose_local_cover(modal)
+                    if cover:
+                        pending['cover']=cover;update_staged_info();preview_cover(modal,cover)
+                except Exception as exc:messagebox.showerror('Game Cover',str(exc))
+            def review_cover():
+                from add_game_metadata import preview_cover
+                if pending['cover']:preview_cover(modal,pending['cover'])
+                else:messagebox.showinfo('Game Cover','Choose a cover from Steam or your PC first.')
+            def clear_cover():
+                pending['cover']=None;update_staged_info()
+            cover_menu.add_command(label='Choose from PC…',command=local_cover)
+            cover_menu.add_command(label='Preview selected cover',command=review_cover)
+            cover_menu.add_command(label='Clear selected cover',command=clear_cover)
+            def import_current():
+                return dict(pending['metadata'],name=title_entry.get(),platform=platform_entry.get(),
+                            description=description_entry.get('1.0','end-1c'),_cover=pending['cover'])
+            def apply_import(updates,cover):
+                from add_game_metadata import METADATA_FIELDS
+                for key,widget in [('name',title_entry),('platform',platform_entry)]:
+                    if key in updates:widget.delete(0,tk.END);widget.insert(0,str(updates[key]))
+                if 'description' in updates:
+                    description_entry.delete('1.0',tk.END);description_entry.insert('1.0',updates['description'])
+                pending['metadata'].update({key:value for key,value in updates.items() if key in METADATA_FIELDS})
+                if cover:pending['cover']=cover
+                update_staged_info()
+            def find_on_steam():
+                from add_game_metadata import open_search
+                open_search(modal,get_setting('accent_color','#B23A48'),import_current,apply_import)
+
         error = tk.Label(modal, text="", fg="#F19B9B", wraplength=400)
         error.pack(pady=3)
 
         def current_form_values():
+            from add_game_metadata import staged_signature
             return (title_entry.get(), platform_entry.get(), price_entry.get(),
                     playtime_entry.get(), description_entry.get('1.0', 'end-1c'),
-                    completed_var.get(), backlog_var.get(), started_var.get())
+                    completed_var.get(), backlog_var.get(), started_var.get(),
+                    staged_signature(pending['metadata'],pending['cover']))
         original_values = current_form_values()
         modal.has_unsaved_changes = lambda: current_form_values() != original_values
 
@@ -483,9 +535,15 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
                       int(backlog_var.get()), int(started_var.get()),
                       description_entry.get("1.0", "end-1c").strip())
             if game_id is None:
-                cursor.execute(
-                    "INSERT INTO games (name, platform, playtime, price_paid, completed, "
-                    "backlog, started, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", values)
+                from add_game_metadata import find_duplicates,create_game,confirm_duplicate
+                matches=find_duplicates(title,platform)
+                if matches:
+                    if not confirm_duplicate(modal,matches,get_setting('accent_color','#B23A48')):
+                        return
+                try:create_game(values,pending['metadata'],pending['cover'])
+                except Exception as exc:
+                    error.configure(text='Game could not be saved: '+str(exc))
+                    return
             else:
                 cursor.execute(
                     "UPDATE games SET name=?, platform=?, playtime=?, price_paid=?, "
