@@ -67,6 +67,9 @@ def setup_database():
     if "page_count" not in book_columns:
         cursor.execute("ALTER TABLE books ADD COLUMN page_count INTEGER NOT NULL DEFAULT 0")
 
+    if "page_reached" not in book_columns:
+        cursor.execute("ALTER TABLE books ADD COLUMN page_reached INTEGER")
+
     # Cover art is stored as a relative file path rather than as image data.
     # These migrations preserve existing libraries in-place.
     for table in ("games", "movies", "shows", "books"):
@@ -75,7 +78,7 @@ def setup_database():
         if "cover_path" not in columns:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN cover_path TEXT")
 
-    for table in ('movies', 'shows'):
+    for table in ('movies', 'shows', 'books'):
         cursor.execute(f"PRAGMA table_info({table})")
         if "background_path" not in {column[1] for column in cursor.fetchall()}:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN background_path TEXT")
@@ -188,3 +191,4 @@ def set_setting(key, value):
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
     """, (key, str(value)))
     connection.commit()
+

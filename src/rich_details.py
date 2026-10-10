@@ -35,6 +35,7 @@ FIELDS = {
               ('price_paid', 'Price paid (£)', 'money'), ('description', 'Description', 'multiline'),
               ('notes', 'Personal notes', 'multiline')],
     'books': [('name', 'Book name', 'required'), ('page_count', 'Page count', 'count'),
+              ('page_reached', 'Page reached (leave blank if unknown)', 'optional_count'),
               ('reading_time', 'Reading time (H:MM:SS)', 'duration'), ('read_count', 'Read count', 'count'),
               ('completed', 'Completed', 'bool'), ('in_progress', 'In progress', 'bool'), ('owned', 'Owned', 'bool'),
               ('type', 'Type', 'text'), ('genre', 'Genre', 'text'), ('author', 'Author', 'text'),
@@ -71,7 +72,7 @@ def parse_values(kind, raw_values):
                     raise ValueError(f'{label} must use H:MM:SS (minutes and seconds 00–59).')
                 if not math.isfinite(value):
                     raise ValueError(f'{label} is too large.')
-            elif field_type in ('int', 'count'):
+            elif field_type in ('int', 'count', 'optional_count'):
                 try:
                     value = int(raw) if raw else None
                 except ValueError:
@@ -93,6 +94,9 @@ def parse_values(kind, raw_values):
             raise InvalidField(key, str(exc)) from exc
     if kind == 'shows' and values['episode_reached'] > values['episode_count']:
         raise InvalidField('episode_reached', 'Episode reached cannot exceed episode count.')
+    if kind == 'books' and values['page_reached'] is not None:
+        if not values['page_count'] or values['page_reached'] > values['page_count']:
+            raise InvalidField('page_reached', 'Enter a page count and a page reached no greater than that total.')
     if kind == 'games':
         from add_game_metadata import METADATA_FIELDS, normalise_manual_metadata
         try:
@@ -311,3 +315,4 @@ def open_rich_editor(parent, kind, item_id, accent, refresh):
     window.bind('<Escape>', close)
     widgets['name'].focus_set()
     return window
+

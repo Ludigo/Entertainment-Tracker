@@ -28,6 +28,8 @@ def show_sections(record):
 
 
 def episode_progress(record):
+    if record.get('completed'):
+        return 'Current season: Completed · 100%', 1.0
     total = record.get('episode_count')
     reached = record.get('episode_reached') or 0
     if total in (None, 0):
@@ -47,3 +49,4 @@ def render(parent, record, accent, page=None, page_state=None):
     return render_panels(parent, record, accent, page, page_state,
                          section_builder=show_sections, media_label='SHOW',
                          subtitle=subtitle, progress=episode_progress(record))
+

@@ -13,13 +13,13 @@ except ImportError:
 
 
 def background_path(item_id, kind='movies'):
-    if kind not in ('movies','shows'):raise ValueError('Invalid background category')
+    if kind not in ('movies','shows','books'):raise ValueError('Invalid background category')
     row = connection.execute(f'SELECT background_path FROM {kind} WHERE id=?', (item_id,)).fetchone()
     return row[0] if row else None
 
 
 def set_background(item_id, path, kind='movies'):
-    if kind not in ('movies','shows'):raise ValueError('Invalid background category')
+    if kind not in ('movies','shows','books'):raise ValueError('Invalid background category')
     require_unlocked(kind, item_id, 'background_path')
     if path and not connection.execute(
             'SELECT 1 FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',
@@ -209,3 +209,4 @@ def render(parent, record, accent, page=None, page_state=None, *,
     canvas.bind('<Destroy>', destroyed, add='+')
     request_paint()
     return canvas
+

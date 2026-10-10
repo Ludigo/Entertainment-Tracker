@@ -1,6 +1,6 @@
 # Entertainment Tracker v1.0
 
-This is the **beta development branch**. The latest Windows-tested and approved source is **Beta 1.57 — Cinematic Shows**. The next candidate is **Beta 1.58**; subsequent builds continue Beta 1.59, Beta 1.60, and so on. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
+This is the **beta development branch**. The latest Windows-tested and approved source is **Beta 1.58 — Cinematic Books**. The next candidate is **Beta 1.59**; subsequent builds continue Beta 1.60, Beta 1.61, and so on. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
 
 A personal, non-commercial Windows desktop application built with Python.
 
@@ -66,3 +66,13 @@ Windows-tested and approved by the maintainer.
 - Show backgrounds can be selected, cleared and protected through Artwork Collection, with offline audit, relink and portable backup support.
 - Episode progress displays saved current-season counts, with guidance for missing or invalid totals.
 - Existing metadata editors and embedded Books timer retained.
+
+## Beta 1.58 — Cinematic Books
+
+Windows-tested and approved by the maintainer.
+
+- Cinematic Books details with Book Information and My Book Activity panels, descriptions and personal notes.
+- Independent locally saved and protected book backgrounds, with relink, audit, cleanup and portable backup support.
+- Optional Page reached field in Metadata and a page-progress bar. Existing unknown progress stays unrecorded.
+- Completed Books and Shows display 100% progress while retaining saved page and episode counts.
+- Existing embedded reading timer retained.

@@ -321,12 +321,12 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
     # Always use the cinematic game layout, even when no background artwork
     # has been assigned. Otherwise the right pane still uses the cinematic
     # renderer but loses its page canvas, leaving an empty-looking screen.
-    full_art = kind in ('games','movies','shows') and PIL_AVAILABLE
+    full_art = kind in ('games','movies','shows','books') and PIL_AVAILABLE
     if full_art:
         page = tk.Canvas(parent, bg=BG, bd=0, highlightthickness=0)
         page.pack(fill='both', expand=True)
         page_state = {'photo': None, 'size': None, 'source': None, 'raster': None}
-        art_file = _absolute_cover(record.get('background_path') if kind in ('movies','shows') else _game_art_paths(item_id)[1])
+        art_file = _absolute_cover(record.get('background_path') if kind in ('movies','shows','books') else _game_art_paths(item_id)[1])
         try:
             if art_file is not None:
                 with Image.open(art_file) as image:
@@ -521,7 +521,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         old = _absolute_cover(row[0])
         cursor.execute(f"UPDATE {table} SET cover_path = NULL WHERE id = ?", (item_id,))
         connection.commit()
-        if old and kind not in ('movies','shows'):
+        if old and kind not in ('movies','shows','books'):
             try:
                 old.unlink()
             except OSError:
@@ -717,7 +717,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         body.after_idle(arrange_body)
     else:
         right_holder.grid(row=0, column=1, sticky="nsew")
-    if kind in ('movies','shows') or (kind == 'games' and PIL_AVAILABLE):
+    if kind in ('movies','shows','books') or (kind == 'games' and PIL_AVAILABLE):
         # Cinematic details own their scroll surface.
         right = right_holder
         scroll = None
@@ -1264,8 +1264,10 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         cinematic.after_idle(initial_draw)
         page.bind('<Configure>', lambda e: cinematic.after_idle(
             lambda: draw_cinematic(force=True) if cinematic.winfo_exists() else None), add='+')
-    elif kind in ('movies','shows'):
-        if kind == 'shows':
+    elif kind in ('movies','shows','books'):
+        if kind == 'books':
+            from book_cinematic import render
+        elif kind == 'shows':
             from show_cinematic import render
         else:
             from movie_cinematic import render
@@ -1292,14 +1294,14 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
             from game_gallery import GameGallery
             gallery = GameGallery(right, item_id, accent)
             gallery.pack(fill="x", pady=(18, 0))
-    if kind not in ("games", "movies", "shows") or (kind == "games" and not PIL_AVAILABLE):
+    if kind not in ("games", "movies", "shows", "books") or (kind == "games" and not PIL_AVAILABLE):
         tk.Label(right, text="DESCRIPTION", bg=PANEL, fg=accent,
                  font=("Arial", 10, "bold")).pack(anchor="w", pady=(18, 6))
         tk.Label(right, text=record.get("description") or "No description saved yet.",
                  bg=PANEL, fg=TEXT, wraplength=1050, justify="left",
                  anchor="w").pack(anchor="w", fill="x")
 
-    if kind not in ("games", "movies", "shows") and record.get("notes"):
+    if kind not in ("games", "movies", "shows", "books") and record.get("notes"):
         tk.Label(right, text="PERSONAL NOTES", bg=PANEL, fg=accent,
                  font=("Arial", 10, "bold")).pack(anchor="w", pady=(18, 6))
         tk.Label(right, text=record["notes"], bg=PANEL, fg=TEXT,
@@ -1335,3 +1337,4 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
             duration = f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
             tk.Label(right, text=f"{date_text}     {duration}",
                      bg=PANEL, fg=TEXT, font=("Arial", 10)).pack(anchor="w", pady=2)
+

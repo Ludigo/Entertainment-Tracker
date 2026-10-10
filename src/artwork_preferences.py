@@ -35,7 +35,7 @@ def install_artwork_guards():
             WHEN NEW.cover_path IS NOT OLD.cover_path AND
               (SELECT value FROM settings WHERE key='art_lock_{kind}_'||OLD.id||'_cover_path')='1'
             BEGIN SELECT RAISE(ABORT, 'Artwork is locked. Unlock its role in Artwork Manager first.'); END''')
-    for kind in ('movies', 'shows'):
+    for kind in ('movies', 'shows', 'books'):
         connection.execute(f'''CREATE TRIGGER IF NOT EXISTS protect_{kind}_background
             BEFORE UPDATE OF background_path ON {kind}
             WHEN NEW.background_path IS NOT OLD.background_path AND
@@ -82,7 +82,7 @@ def relink_artwork(kind, item_id, old_path, filename):
     if kind not in CATEGORIES:raise ValueError('Invalid category')
     row=connection.execute(f'SELECT cover_path FROM {kind} WHERE id=?',(item_id,)).fetchone()
     assigned={'cover_path':row[0] if row else None}
-    if kind in ('movies','shows'):
+    if kind in ('movies','shows','books'):
         row=connection.execute(f'SELECT background_path FROM {kind} WHERE id=?',(item_id,)).fetchone()
         if row:assigned['background_path']=row[0]
     if kind=='games':
@@ -105,7 +105,7 @@ def relink_artwork(kind, item_id, old_path, filename):
             connection.execute(f'UPDATE {kind} SET cover_path=? WHERE id=?',(new_path,item_id))
         for role in roles:
             if role!='cover_path':
-                table,id_column=(kind,'id') if kind in ('movies','shows') else ('game_detail_art','game_id')
+                table,id_column=(kind,'id') if kind in ('movies','shows','books') else ('game_detail_art','game_id')
                 connection.execute(f'UPDATE {table} SET {role}=? WHERE {id_column}=?',(new_path,item_id))
         if new_path!=old_path:
             connection.execute('DELETE FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',(kind,item_id,old_path))
@@ -113,3 +113,4 @@ def relink_artwork(kind, item_id, old_path, filename):
             connection.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(favourite_key(kind,item_id,new_path),'1'))
     # Neither the selected original nor any old file is removed.
     return new_path
+
