@@ -6,7 +6,7 @@ from collections import defaultdict
 from backup_manager import create_backup
 
 ROOT = Path(__file__).resolve().parent.parent
-CATEGORIES = ('games', 'movies', 'shows', 'books')
+CATEGORIES = ('games', 'movies', 'shows', 'books', 'cds')
 MEDIA_FIELDS = ('cover_path', 'background_path', 'hero_path', 'logo_path', 'image_path', 'screenshot_path')
 
 def clean_name(name):
@@ -121,3 +121,4 @@ def rename_existing(db, root=ROOT):
             if target.exists(): target.rename(source)
         raise
     return len(moved),skipped,safety
+

@@ -13,13 +13,13 @@ except ImportError:
 
 
 def background_path(item_id, kind='movies'):
-    if kind not in ('movies','shows','books'):raise ValueError('Invalid background category')
+    if kind not in ('movies','shows','books','cds'):raise ValueError('Invalid background category')
     row = connection.execute(f'SELECT background_path FROM {kind} WHERE id=?', (item_id,)).fetchone()
     return row[0] if row else None
 
 
 def set_background(item_id, path, kind='movies'):
-    if kind not in ('movies','shows','books'):raise ValueError('Invalid background category')
+    if kind not in ('movies','shows','books','cds'):raise ValueError('Invalid background category')
     require_unlocked(kind, item_id, 'background_path')
     if path and not connection.execute(
             'SELECT 1 FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',
@@ -72,7 +72,7 @@ def wrap_text(value, font, width):
 
 
 def render(parent, record, accent, page=None, page_state=None, *,
-           section_builder=movie_sections, media_label='MOVIE', subtitle=None, progress=None):
+           section_builder=movie_sections, media_label='MOVIE', subtitle=None, progress=None, activity_heading=None, extra_sections=()):
     canvas = tk.Canvas(parent, bg='#181c22', bd=0, highlightthickness=0, yscrollincrement=24)
     canvas.pack(side='left', fill='both', expand=True)
     bar = tk.Scrollbar(parent, orient='vertical')
@@ -123,7 +123,7 @@ def render(parent, record, accent, page=None, page_state=None, *,
         year = record.get('release_year')
         y += text(margin, y, subtitle if subtitle is not None else media_label + (f'  ·  {year}' if year else ''), 'label', accent) + 22
         facts, activity = section_builder(record)
-        for heading, fields in [(media_label + ' INFORMATION', facts), ('MY ' + media_label + ' ACTIVITY', activity)]:
+        for heading, fields in [(media_label + ' INFORMATION', facts), (activity_heading or 'MY ' + media_label + ' ACTIVITY', activity)]:
             start = y
             inset = margin + 18
             y += 18
@@ -152,7 +152,7 @@ def render(parent, record, accent, page=None, page_state=None, *,
             panels.append((margin, start, width - margin, y))
             y += 18
         for heading, content in [('DESCRIPTION', record.get('description') or 'No description saved yet.'),
-                                 ('PERSONAL NOTES', record.get('notes'))]:
+                                 ('PERSONAL NOTES', record.get('notes'))] + list(extra_sections):
             if not content:
                 continue
             start = y

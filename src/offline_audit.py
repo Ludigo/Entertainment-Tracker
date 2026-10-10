@@ -1,7 +1,7 @@
 """Read-only audit of saved metadata and local artwork references."""
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
-TABLES = ('games', 'movies', 'shows', 'books')
+TABLES = ('games', 'movies', 'shows', 'books', 'cds')
 MEDIA_FIELDS = ('cover_path', 'background_path', 'hero_path', 'logo_path', 'image_path', 'screenshot_path')
 
 def audit_collection(connection, root=ROOT):
@@ -70,3 +70,4 @@ def format_audit(report):
               'External paths or URLs are not automatically copied into backups.',
               'Read-only check. No changes to your collection were made.']
     return '\n'.join(lines)
+

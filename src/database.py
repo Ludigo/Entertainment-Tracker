@@ -56,6 +56,24 @@ def setup_database():
         genre TEXT
     )
     """)
+    cursor.execute("""CREATE TABLE IF NOT EXISTS cds (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+        artist TEXT, release_year INTEGER, genre TEXT, label TEXT, barcode TEXT,
+        disc_count INTEGER NOT NULL DEFAULT 1, price_paid REAL, notes TEXT,
+        description TEXT, owned_physical INTEGER NOT NULL DEFAULT 0,
+        owned_digital INTEGER NOT NULL DEFAULT 0, listening_time REAL NOT NULL DEFAULT 0,
+        play_count INTEGER NOT NULL DEFAULT 0, cover_path TEXT, background_path TEXT
+    )""")
+    cursor.execute("""CREATE TABLE IF NOT EXISTS cd_tracks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, cd_id INTEGER NOT NULL,
+        disc INTEGER NOT NULL, track INTEGER NOT NULL, name TEXT NOT NULL,
+        duration_seconds INTEGER, UNIQUE(cd_id,disc,track)
+    )""")
+    cursor.execute("""CREATE TABLE IF NOT EXISTS cd_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, cd_id INTEGER NOT NULL,
+        started_at TEXT NOT NULL, ended_at TEXT NOT NULL,
+        duration_seconds INTEGER NOT NULL, source TEXT NOT NULL, note TEXT DEFAULT ''
+    )""")
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -170,6 +188,10 @@ def setup_database():
                   "game_modes", "age_rating"):
         if field not in game_fields:
             cursor.execute(f"ALTER TABLE games ADD COLUMN {field} TEXT")
+    existing_cd_columns = {r[1] for r in connection.execute('PRAGMA table_info(cds)')}
+    for field in ('provider_source','provider_id','provider_url'):
+        if field not in existing_cd_columns:
+            connection.execute(f'ALTER TABLE cds ADD COLUMN {field} TEXT')
     connection.commit()
     from artwork_preferences import install_artwork_guards
     install_artwork_guards()

@@ -1,7 +1,7 @@
 import shutil
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, ttk
 
 try:
     from PIL import Image, ImageTk, ImageOps, ImageDraw
@@ -178,7 +178,7 @@ def _choose_game_art(parent, game_id, role, refresh):
     apply_filter(preferred_path=current_art[0 if role == 'logo_path' else 1])
 
 COVER_ROOT = PROJECT_ROOT / "assets" / "covers"
-for folder in ("games", "movies", "shows", "books"):
+for folder in ("games", "movies", "shows", "books", "cds"):
     (COVER_ROOT / folder).mkdir(parents=True, exist_ok=True)
 
 
@@ -231,6 +231,10 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
     columns = [row[1] for row in cursor.fetchall()]
     record = dict(zip(columns, item))
     cover_path = record.get("cover_path")
+    if kind=='shows':
+        from show_series import seasons, season_labels
+        series_records=seasons(item_id)
+        record['_series_records']=series_records
 
     if kind == "games":
         title = item[1]
@@ -298,6 +302,12 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                   ("Network / Service", record.get("network") or "—"),
                   ("Rating", record.get("rating") or "—"),
                   ("Price Paid", "—" if record.get("price_paid") is None else f"£{record['price_paid']:,.2f}")]
+    elif kind == "cds":
+        from cd_cinematic import album_sections
+        from cds import tracks_for
+        record['_tracks']=tracks_for(item_id)
+        title=record['name'];subtitle=record.get('artist') or 'Album'
+        facts,activity=album_sections(record);fields=facts+activity
     else:
         title = record["name"]
         subtitle = record.get("type") or "Book"
@@ -321,12 +331,12 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
     # Always use the cinematic game layout, even when no background artwork
     # has been assigned. Otherwise the right pane still uses the cinematic
     # renderer but loses its page canvas, leaving an empty-looking screen.
-    full_art = kind in ('games','movies','shows','books') and PIL_AVAILABLE
+    full_art = kind in ('games','movies','shows','books','cds') and PIL_AVAILABLE
     if full_art:
         page = tk.Canvas(parent, bg=BG, bd=0, highlightthickness=0)
         page.pack(fill='both', expand=True)
         page_state = {'photo': None, 'size': None, 'source': None, 'raster': None}
-        art_file = _absolute_cover(record.get('background_path') if kind in ('movies','shows','books') else _game_art_paths(item_id)[1])
+        art_file = _absolute_cover(record.get('background_path') if kind in ('movies','shows','books','cds') else _game_art_paths(item_id)[1])
         try:
             if art_file is not None:
                 with Image.open(art_file) as image:
@@ -372,6 +382,33 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                                cursor='hand2')
     tk.Button(top, text="← Back", command=on_back, bg=PANEL_ALT,
               **header_button_style).pack(side="left")
+    if kind=='shows':
+        season_box=ttk.Combobox(top,state='readonly',values=season_labels(series_records),width=23)
+        season_box.pack(side='left',padx=10)
+        season_box.current(next(i for i,r in enumerate(series_records) if r['id']==int(item_id)))
+        def change_season(event=None):
+            index=season_box.current()
+            if index>=0 and series_records[index]['id']!=int(item_id):
+                show_detail(parent,kind,series_records[index]['id'],accent,on_back,on_edit)
+        season_box.bind('<<ComboboxSelected>>',change_season)
+        def add_season():
+            from add_media_metadata import open_add_media
+            open_add_media(page,'shows',accent,
+                lambda:show_detail(parent,kind,item_id,accent,on_back,on_edit),
+                initial_values={key:record.get(key) for key in ('name','network','type','genre') if record.get(key)})
+        def delete_season():
+            label='Specials' if record.get('season')==0 else 'Season '+str(record.get('season'))
+            if not messagebox.askyesno('Delete Season',f"Delete {label} of '{title}'?\nOther saved seasons will remain."):return
+            remaining=[r for r in seasons(item_id) if r['id']!=int(item_id)]
+            with connection:connection.execute('DELETE FROM shows WHERE id=?',(item_id,))
+            if remaining:show_detail(parent,kind,remaining[0]['id'],accent,on_back,on_edit)
+            else:on_back()
+        season_actions=tk.Menubutton(top,text='Season actions ▾',bg=PANEL_ALT,fg=TEXT,relief='flat',padx=12,pady=9)
+        season_actions.pack(side='left')
+        season_menu=tk.Menu(season_actions,tearoff=False,bg=PANEL_ALT,fg=TEXT)
+        season_actions.configure(menu=season_menu)
+        season_menu.add_command(label='Add Season…',command=add_season)
+        season_menu.add_command(label='Delete This Season…',command=delete_season)
     if full_art:
         # The toolbar uses a crop of the fixed page image; buttons stay interactive.
         toolbar_art = {'image': None}
@@ -450,7 +487,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
     left = tk.Frame(body, bg=PANEL, padx=12, pady=12, highlightthickness=1, highlightbackground=BORDER)
     if not full_art:
         left.grid(row=0, column=0, sticky="ns", padx=(0, 18))
-    cover_holder = tk.Frame(left, width=252, height=352, bg=PANEL_ALT,
+    cover_holder = tk.Frame(left, width=252, height=252 if kind=="cds" else 352, bg=PANEL_ALT,
                             highlightthickness=1, highlightbackground=BORDER)
     cover_holder.pack(padx=0, pady=(0, 2))
     cover_holder.pack_propagate(False)
@@ -521,7 +558,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         old = _absolute_cover(row[0])
         cursor.execute(f"UPDATE {table} SET cover_path = NULL WHERE id = ?", (item_id,))
         connection.commit()
-        if old and kind not in ('movies','shows','books'):
+        if old and kind not in ('movies','shows','books','cds'):
             try:
                 old.unlink()
             except OSError:
@@ -552,12 +589,18 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                 button.configure(bg=colour, fg='white' if colour == accent else TEXT),
             add='+')
 
-    from metadata_finder import open_finder
-    tk.Button(left, text="Find Art & Description Online",
+    from metadata_finder import open_finder as standard_finder
+    def open_finder(parent,category,ident,title,accent,refresh):
+        if category=='cds':
+            from cd_editor import open_editor
+            editor=open_editor(parent,accent,lambda _:refresh(),ident)
+            editor.after_idle(editor._cd_editor.find)
+        else:standard_finder(parent,category,ident,title,accent,refresh)
+    tk.Button(left, text="Find Album Metadata & Artwork" if kind=="cds" else "Find Art & Description Online",
               command=lambda: open_finder(page, kind, item_id, title, accent,
                   lambda: show_detail(parent, kind, item_id, accent, on_back, on_edit)),
               bg=accent, fg="white", relief="flat", padx=12, pady=10).pack(fill="x", pady=(4, 4))
-    if kind != 'games':
+    if kind not in ('games','cds'):
         tk.Button(left, text="Choose / Change Cover", command=choose_cover, bg=accent, fg="white",
                   activebackground=accent, activeforeground="white", relief="flat", bd=0,
                   padx=14, pady=10, cursor="hand2").pack(fill="x", pady=(0, 4))
@@ -570,7 +613,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         from rich_details import open_rich_editor
         open_rich_editor(page, kind, item_id, accent,
                          lambda: show_detail(parent, kind, item_id, accent, on_back, on_edit))
-    tk.Button(left, text='Edit ' + kind[:-1].title() + ' Metadata', command=edit_metadata,
+    tk.Button(left, text='Edit Album Metadata' if kind=='cds' else 'Edit ' + kind[:-1].title() + ' Metadata', command=edit_metadata,
               bg=PANEL_ALT, fg=TEXT, relief='flat', padx=14, pady=10,
               cursor='hand2').pack(fill='x', pady=(0, 4))
 
@@ -601,7 +644,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                   bg=PANEL_ALT, fg=TEXT, relief='flat', padx=14, pady=10,
                   cursor='hand2').pack(fill='x', pady=(0, 4))
 
-    if kind in ("games", "books"):
+    if kind in ("games", "books", "cds"):
         from manual_timer import clock
         root = parent.winfo_toplevel()
         timer = root.manual_timer
@@ -609,7 +652,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         timer_panel = tk.Frame(left, bg=PANEL_ALT, highlightthickness=1,
                                highlightbackground=BORDER, padx=10, pady=10)
         timer_panel.pack(fill='x', pady=(8, 0))
-        tk.Label(timer_panel, text='READING TIMER' if kind == 'books' else 'PROGRESS TIMER', bg=PANEL_ALT, fg=TEXT,
+        tk.Label(timer_panel, text='READING TIMER' if kind == 'books' else 'LISTENING TIMER' if kind=='cds' else 'PROGRESS TIMER', bg=PANEL_ALT, fg=TEXT,
                  font=('Arial', 11, 'bold')).pack(pady=(0, 10))
         timer_clock = tk.Label(timer_panel, text='00:00:00', bg=PANEL, fg=TEXT,
                                font=('Arial', 23), pady=8)
@@ -644,8 +687,8 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                 messagebox.showwarning('Progress Timer', str(exc))
                 return
             messagebox.showinfo('Progress Timer', f'{clock(seconds)} added to ' +
-                                ('reading time.' if kind == 'books' else 'playtime.'))
-            if kind == 'books':
+                                ('reading time.' if kind == 'books' else 'listening time.' if kind=='cds' else 'playtime.'))
+            if kind in ('books','cds'):
                 show_detail(parent, kind, item_id, accent, on_back, on_edit)
                 return
             update_timer()
@@ -671,7 +714,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                               relief='flat', bd=0, padx=2, pady=7,
                               command=start_pause)
         start_btn.grid(row=0, column=0, sticky='ew', padx=(0, 4))
-        add_btn = tk.Button(controls, text='Add', bg=PANEL, fg=TEXT,
+        add_btn = tk.Button(controls, text='Save' if kind=='cds' else 'Add', bg=PANEL, fg=TEXT,
                             activebackground=BORDER, activeforeground='white',
                             disabledforeground=MUTED, relief='flat', bd=0,
                             padx=2, pady=7, command=add_time)
@@ -702,6 +745,32 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         timer_panel.bind('<Destroy>', cancel_tick, add='+')
         tick()
 
+    if kind=='cds':
+        def full_album_play():
+            from cds import log_album_play
+            timer=parent.winfo_toplevel().manual_timer
+            if timer.kind=='cds' and timer.item_id==item_id:
+                messagebox.showwarning('Listening Timer','Stop and save this album’s timer before logging a full play.');return
+            if not messagebox.askyesno('Log Full Album Play','Add one full album play and its tracklist duration to your listening total?'):return
+            try:log_album_play(item_id)
+            except ValueError as exc:messagebox.showwarning('Album Play',str(exc));return
+            show_detail(parent,kind,item_id,accent,on_back,on_edit)
+        def delete_cd():
+            from cds import delete_album
+            if not messagebox.askyesno('Delete Album','Delete this album, tracklist and listening history?'):return
+            try:delete_album(item_id,parent.winfo_toplevel().manual_timer)
+            except ValueError as exc:messagebox.showwarning('Listening Timer',str(exc));return
+            on_back()
+        def history_cd():
+            from cd_history import open_history
+            open_history(page,item_id,title,accent)
+        actions=tk.Menubutton(left,text='Album actions ▾',bg=PANEL_ALT,fg=TEXT,relief='flat',padx=14,pady=9)
+        actions.pack(fill='x',pady=(6,0))
+        menu=tk.Menu(actions,tearoff=False,bg=PANEL_ALT,fg=TEXT);actions.configure(menu=menu)
+        menu.add_command(label='Log Full Album Play…',command=full_album_play)
+        menu.add_command(label='Listening History…',command=history_cd)
+        menu.add_command(label='Delete Album…',command=delete_cd)
+
     right_holder = tk.Frame(body, bg=BG, highlightthickness=0)
     if full_art:
         left_window = body.create_window(0,0,window=left,anchor='nw')
@@ -717,7 +786,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         body.after_idle(arrange_body)
     else:
         right_holder.grid(row=0, column=1, sticky="nsew")
-    if kind in ('movies','shows','books') or (kind == 'games' and PIL_AVAILABLE):
+    if kind in ('movies','shows','books','cds') or (kind == 'games' and PIL_AVAILABLE):
         # Cinematic details own their scroll surface.
         right = right_holder
         scroll = None
@@ -1264,8 +1333,10 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         cinematic.after_idle(initial_draw)
         page.bind('<Configure>', lambda e: cinematic.after_idle(
             lambda: draw_cinematic(force=True) if cinematic.winfo_exists() else None), add='+')
-    elif kind in ('movies','shows','books'):
-        if kind == 'books':
+    elif kind in ('movies','shows','books','cds'):
+        if kind == 'cds':
+            from cd_cinematic import render
+        elif kind == 'books':
             from book_cinematic import render
         elif kind == 'shows':
             from show_cinematic import render
@@ -1294,14 +1365,14 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
             from game_gallery import GameGallery
             gallery = GameGallery(right, item_id, accent)
             gallery.pack(fill="x", pady=(18, 0))
-    if kind not in ("games", "movies", "shows", "books") or (kind == "games" and not PIL_AVAILABLE):
+    if kind not in ("games", "movies", "shows", "books", "cds") or (kind == "games" and not PIL_AVAILABLE):
         tk.Label(right, text="DESCRIPTION", bg=PANEL, fg=accent,
                  font=("Arial", 10, "bold")).pack(anchor="w", pady=(18, 6))
         tk.Label(right, text=record.get("description") or "No description saved yet.",
                  bg=PANEL, fg=TEXT, wraplength=1050, justify="left",
                  anchor="w").pack(anchor="w", fill="x")
 
-    if kind not in ("games", "movies", "shows", "books") and record.get("notes"):
+    if kind not in ("games", "movies", "shows", "books", "cds") and record.get("notes"):
         tk.Label(right, text="PERSONAL NOTES", bg=PANEL, fg=accent,
                  font=("Arial", 10, "bold")).pack(anchor="w", pady=(18, 6))
         tk.Label(right, text=record["notes"], bg=PANEL, fg=TEXT,

@@ -1,11 +1,13 @@
 """Multi-provider metadata finder with explicit, per-field import confirmation."""
 from window_style import install as polish_dialog
+from provider_artwork import enrich_with_artwork
 import html
 import json
 import time
 import urllib.error
 import re
 import threading
+import queue
 import urllib.parse
 import urllib.request
 import uuid
@@ -93,7 +95,7 @@ def search_provider(kind, title, provider, tmdb_token=''):
                 description=plain(info.get('description')), author=', '.join(info.get('authors', [])),
                 release_year=str(info.get('publishedDate',''))[:4], publisher=info.get('publisher',''),
                 isbn=isbn, page_count=info.get('pageCount'), genre=', '.join(info.get('categories', [])),
-                cover=cover))
+                cover=cover, image_links=info.get('imageLinks') or {}, google_id=entry.get('id')))
         return output
     if provider == 'Open Library':
         data = get_json(f'https://openlibrary.org/search.json?title={q}&limit=15&fields=key,title,author_name,first_publish_year,cover_i,isbn,publisher,number_of_pages_median')
@@ -115,7 +117,8 @@ def search_provider(kind, title, provider, tmdb_token=''):
         return [result(provider, x.get('trackName',''), str(x.get('releaseDate',''))[:4],
             description=plain(x.get('longDescription') or x.get('shortDescription')),
             release_year=str(x.get('releaseDate',''))[:4], genre=x.get('primaryGenreName',''),
-            cover=x.get('artworkUrl100','').replace('100x100bb','600x600bb')) for x in data.get('results', [])]
+            cover=x.get('artworkUrl100','').replace('100x100bb','600x600bb'),
+            artwork_options=[(key,value) for key,value in x.items() if key.startswith('artworkUrl') and isinstance(value,str)]) for x in data.get('results', [])]
     if provider == 'Steam':
         data = get_json(f'https://store.steampowered.com/api/storesearch/?term={q}&l=english&cc=gb')
         return [result(provider, x.get('name',''), 'Steam',
@@ -256,6 +259,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
     win.configure(bg=BG);win.transient(parent.winfo_toplevel())
     previous_grab=win.grab_current()
     changes={'saved':False,'closed':False}
+    completions=queue.Queue();pending={'job':None,'startup':None,'generation':0}
     def close_finder(event=None):
         if changes['closed']:
             return 'break'
@@ -263,6 +267,9 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
         changes['saved']=changes['saved'] or any(
             getattr(child,'_artwork_changed',False) for child in win.winfo_children())
         changes['closed']=True
+        pending['generation']+=1
+        if pending['job']:win.after_cancel(pending['job'])
+        if pending['startup']:win.after_cancel(pending['startup'])
         win.destroy()
         if previous_grab is not None:
             try:
@@ -296,7 +303,8 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
     tk.Label(win,textvariable=status,bg=BG,fg=MUTED,anchor='w',wraplength=940).pack(fill='x',padx=20,pady=8)
     sourcebar=tk.Frame(win,bg=BG);sourcebar.pack(fill='x',padx=20)
     tk.Label(sourcebar,text='Source:',bg=BG,fg=TEXT).pack(side='left')
-    source=tk.StringVar(value=providers(kind)[0]);picker=ttk.Combobox(sourcebar,textvariable=source,values=providers(kind),state='readonly',width=18)
+    default_source='TMDB' if kind in ('movies','shows') and token.get().strip() else providers(kind)[0]
+    source=tk.StringVar(value=default_source);picker=ttk.Combobox(sourcebar,textvariable=source,values=providers(kind),state='readonly',width=18)
     picker.pack(side='left',padx=8)
     # A dark readonly combobox can appear disabled on some Windows themes.
     style=ttk.Style(win)
@@ -304,7 +312,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
                     fieldbackground=PANEL_ALT, background=PANEL_ALT,
                     foreground=TEXT, arrowcolor=TEXT)
     picker.configure(style='MetadataSource.TCombobox')
-    picker.current(0)
+    picker.current(providers(kind).index(default_source))
     if kind in ('movies','shows'):
         tk.Label(sourcebar,text='TMDB token (saved automatically):',bg=BG,fg=MUTED).pack(side='left',padx=(12,5))
         entry=tk.Entry(sourcebar,textvariable=token,show='•',bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT,relief='flat')
@@ -326,14 +334,24 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
     inner=tk.Frame(canvas,bg=PANEL);window_id=canvas.create_window(0,0,window=inner,anchor='nw')
     inner.bind('<Configure>',lambda e:canvas.configure(scrollregion=canvas.bbox('all')))
     canvas.bind('<Configure>',lambda e:canvas.itemconfigure(window_id,width=e.width))
-    items=[];selected={'index':None};busy={'value':False};checks={}
+    items=[];selected={'index':None};busy={'value':False};loading={'value':False};checks={}
     def background(work,done):
+        generation=pending['generation']
         def run():
             try:value,error=work(),None
             except Exception as exc:value,error=None,str(exc)
-            try:win.after(0,lambda:done(value,error))
-            except RuntimeError:pass
+            completions.put((generation,done,value,error))
         threading.Thread(target=run,daemon=True).start()
+    def poll():
+        pending['job']=None
+        if changes['closed']:return
+        try:
+            while True:
+                generation,done,value,error=completions.get_nowait()
+                if generation==pending['generation']:done(value,error)
+        except queue.Empty:pass
+        pending['job']=win.after(80,poll)
+    pending['job']=win.after(80,poll)
     def show_fields(item):
         for widget in inner.winfo_children():widget.destroy()
         checks.clear()
@@ -357,8 +375,8 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
         if busy['value']:return
         title=query.get().strip()
         if not title:status.set('Enter a title first.');return
-        busy['value']=True;status.set('Searching '+source.get()+'…')
-        results.delete(*results.get_children());items.clear();selected['index']=None
+        busy['value']=True;pending['generation']+=1;status.set('Searching '+source.get()+'…')
+        results.delete(*results.get_children());items.clear();selected['index']=None;loading['value']=False
         for w in inner.winfo_children():w.destroy()
         checks.clear()
         def done(value,error):
@@ -368,19 +386,28 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
             items.extend(value)
             for i,item in enumerate(items):results.insert('','end',iid=str(i),values=(item['title'],item['subtitle'],item['source']))
             status.set(f'{len(items)} matches from {source.get()}. Choose the correct edition or title.')
-        background(lambda:search_provider(kind,title,source.get(),token.get()),done)
+        provider,auth=source.get(),token.get()
+        background(lambda:search_provider(kind,title,provider,auth),done)
     def chosen(_=None):
+        if busy['value']:return
+        pending['generation']+=1
         selection=results.selection()
         if not selection:return
-        index=int(selection[0]);selected['index']=index
+        index=int(selection[0]);selected['index']=index;loading['value']=True
         show_fields(items[index]);status.set('Loading available details…')
         def done(value,error):
             if not win.winfo_exists() or selected['index']!=index:return
+            loading['value']=False
+            if error:
+                status.set('Additional details/artwork could not be loaded: '+error);return
             if value:items[index]=value;show_fields(value)
-            status.set('Review current vs new values. Only checked fields will be imported.')
-        background(lambda:enrich(kind,dict(items[index]),token.get()),done)
+            status.set((value or {}).get('artwork_warning') or 'Review current vs new values. Only checked fields will be imported; open Artwork Collection for all supplied images.')
+        season=current_fields(kind,item_id).get('season') if kind=='shows' else None
+        auth=token.get();snapshot=dict(items[index])
+        background(lambda:enrich_with_artwork(kind,snapshot,auth,season),done)
     results.bind('<<TreeviewSelect>>',chosen)
     def apply():
+        if busy['value'] or loading['value']:status.set('Wait for the selected result to finish loading.');return
         index=selected['index']
         if index is None:messagebox.showinfo('Select Result','Choose a search result first.',parent=win);return
         chosen_fields=[field for field,var in checks.items() if var.get()]
@@ -396,6 +423,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
     tk.Button(toolbar,text='Search',command=do_search,bg=accent,fg='white',relief='flat',padx=16,pady=7).pack(side='left',padx=(10,0))
     bottom=tk.Frame(win,bg=BG);bottom.pack(fill='x',padx=20,pady=12)
     def artwork():
+        if busy['value'] or loading['value']:status.set('Wait for available artwork to finish loading.');return
         index=selected['index']
         if index is None:messagebox.showinfo('Select Result','Choose a result first.',parent=win);return
         from artwork_manager import open_manager,options
@@ -409,4 +437,8 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
     tk.Button(bottom,text='Artwork Collection…',command=artwork,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=10,pady=8).pack(side='left')
     tk.Button(bottom,text='Close',command=close_finder,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=16,pady=8).pack(side='right')
     tk.Button(bottom,text='Import Checked Fields',command=apply,bg=accent,fg='white',relief='flat',padx=14,pady=8).pack(side='right',padx=10)
-    win.after(100,do_search)
+    def start_search():
+        pending['startup']=None
+        if not changes['closed']:do_search()
+    pending['startup']=win.after(100,start_search)
+

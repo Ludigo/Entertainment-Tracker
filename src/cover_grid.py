@@ -130,6 +130,11 @@ class CoverGrid(tk.Frame):
         if filtered_ids is not None:
             lookup = {row[0]: row for row in self.rows}
             self.rows = [lookup[ident] for ident in filtered_ids if ident in lookup]
+        if self.kind == 'shows':
+            from show_series import groups
+            listings=groups([row[0] for row in self.rows])
+            self.show_season_counts={g['id']:len({r['season'] for r in g['members']}) for g in listings}
+            self.rows=[(g['id'],g['name'],g['cover_path']) for g in listings]
         self.page = 0
         self.render()
 
@@ -149,7 +154,8 @@ class CoverGrid(tk.Frame):
             if not path.is_file() or not path.is_relative_to(PROJECT_ROOT.resolve()):
                 return None
             with Image.open(path) as source:
-                image = ImageOps.fit(source.convert("RGB"), (ART_WIDTH, ART_HEIGHT))
+                image = (ImageOps.pad(source.convert("RGB"), (ART_WIDTH, ART_HEIGHT), color="#202329")
+                         if self.kind == "cds" else ImageOps.fit(source.convert("RGB"), (ART_WIDTH, ART_HEIGHT)))
                 photo = ImageTk.PhotoImage(image)
                 self.photos.append(photo)
                 return photo
@@ -192,6 +198,10 @@ class CoverGrid(tk.Frame):
                                    font=("Arial", 11, "bold"),
                                    justify="center", cursor="hand2")
             picture.pack(fill="both", expand=True)
+            if self.kind=='shows':
+                count=getattr(self,'show_season_counts',{}).get(item_id,1)
+                tk.Label(card,text=name[:23]+f' · {count} season'+('s' if count!=1 else ''),
+                         bg=PANEL,fg=TEXT,font=('Arial',9)).pack(fill='x')
             self._install_wheel_tag(picture)
 
             # Keep hover visually static: no border, font, size or padding changes.
@@ -211,3 +221,4 @@ class CoverGrid(tk.Frame):
         self.prev.configure(state="normal" if self.page > 0 else "disabled")
         self.next.configure(state="normal" if self.page + 1 < total_pages else "disabled")
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+

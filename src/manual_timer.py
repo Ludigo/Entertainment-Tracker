@@ -61,6 +61,12 @@ class ManualTimer:
                     connection.execute('UPDATE games SET playtime = COALESCE(playtime,0) + ?, started = 1 WHERE id = ?', (seconds / 3600, item_id))
                     connection.execute('INSERT INTO game_sessions (game_id, started_at, ended_at, duration_seconds, source, note) VALUES (?, ?, ?, ?, ?, ?)',
                                        (item_id, self.started_at, stamp(), seconds, 'manual', note))
+                elif kind == 'cds':
+                    changed = connection.execute('UPDATE cds SET listening_time = listening_time + ? WHERE id = ?', (seconds / 3600, item_id))
+                    if changed.rowcount != 1:
+                        raise ValueError('This album no longer exists.')
+                    connection.execute('INSERT INTO cd_sessions (cd_id,started_at,ended_at,duration_seconds,source,note) VALUES (?,?,?,?,?,?)',
+                                       (item_id,self.started_at,stamp(),seconds,'manual',note))
                 elif kind == 'books':
                     connection.execute('UPDATE books SET reading_time = COALESCE(reading_time,0) + ? WHERE id = ?', (seconds / 3600, item_id))
         self.kind, self.item_id, self.title = None, None, ''
@@ -142,3 +148,4 @@ def open_timer(parent, kind, item_id, title, accent, on_saved=None):
         stop_btn.configure(state='normal' if same else 'disabled')
         dialog.after(250, refresh)
     refresh()
+

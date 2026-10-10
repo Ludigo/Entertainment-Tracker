@@ -24,6 +24,13 @@ def show_sections(record):
                 ('Completed', 'Yes' if record.get('completed') else 'No'),
                 ('In Progress', 'Yes' if record.get('in_progress') else 'No'),
                 ('Owned', 'Yes' if record.get('owned') else 'No')]
+    members=record.get('_series_records') or []
+    if members:
+        from show_series import totals
+        summary=totals(members)
+        facts.append(('Saved Seasons',str(summary['seasons'])))
+        activity.extend([('Season Entries Completed',f"{sum(bool(r.get('completed')) for r in members)} / {len(members)}"),
+                         ('Total Watch Time (All Seasons)',format_time(summary['watched']))])
     return facts, activity
 
 

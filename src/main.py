@@ -19,6 +19,7 @@ from games import open_games
 from movies import open_movies
 from shows import open_shows
 from books import open_books
+from cds import open_cds
 from details import show_detail
 from tracker import GameTracker
 from manual_timer import ManualTimer
@@ -177,7 +178,9 @@ def show_dashboard():
     cursor.execute("SELECT COUNT(*), COALESCE(SUM(reading_time), 0) FROM books")
     book_count, book_hours = cursor.fetchone()
 
-    total_hours = game_hours + movie_hours + show_hours + book_hours
+    cursor.execute("SELECT COUNT(*), COALESCE(SUM(listening_time),0) FROM cds")
+    cd_count, cd_hours = cursor.fetchone()
+    total_hours = game_hours + movie_hours + show_hours + book_hours + cd_hours
 
     page = tk.Frame(content, bg=BG)
     page.pack(fill="both", expand=True)
@@ -199,13 +202,13 @@ def show_dashboard():
 
     cards = tk.Frame(page, bg=BG)
     cards.grid(row=2, column=0, sticky="ew", padx=40)
-    for col in range(4):
+    for col in range(5):
         cards.grid_columnconfigure(col, weight=1, uniform="dashboard_cards")
 
     def category_card(parent, column, title, count, hours, command):
         card = polished_panel(parent, cursor="hand2")
         card.grid(row=0, column=column, sticky="nsew",
-                  padx=(0 if column == 0 else 6, 0 if column == 3 else 6))
+                  padx=(0 if column == 0 else 6, 0 if column == 4 else 6))
         inner = tk.Frame(card, bg=PANEL, cursor="hand2")
         inner.pack(fill="both", expand=True, padx=18, pady=16)
         title_label = tk.Label(inner, text=title, font=("Arial", 14, "bold"),
@@ -225,6 +228,7 @@ def show_dashboard():
     category_card(cards, 1, "Movies", movie_count, movie_hours, show_movies)
     category_card(cards, 2, "Shows", show_count, show_hours, show_shows)
     category_card(cards, 3, "Books", book_count, book_hours, show_books)
+    category_card(cards, 4, "CDs", cd_count, cd_hours, show_cds)
 
     lower = tk.Frame(page, bg=BG)
     lower.grid(row=3, column=0, sticky="nsew", padx=40, pady=(14, 32))
@@ -363,7 +367,7 @@ def show_dashboard():
 
 def _show_media_detail(kind, item_id, back_command, edit_command):
     global current_page
-    current_page = kind.title()
+    current_page = "CDs" if kind=="cds" else kind.title()
     clear_content()
     show_detail(content, kind, item_id, accent, back_command, edit_command)
     refresh_nav()
@@ -412,6 +416,16 @@ def show_shows(initial_edit_id=None,restore_library=False):
         on_open_detail=lambda item_id: _show_media_detail("shows", item_id, lambda:show_shows(restore_library=True), show_shows),
         initial_edit_id=initial_edit_id,restore_library=restore_library
     )
+    finish_page()
+
+
+def show_cds(restore_library=False):
+    global current_page
+    current_page = "CDs"
+    clear_content()
+    open_cds(content, accent,
+             on_open_detail=lambda item_id:_show_media_detail("cds",item_id,lambda:show_cds(restore_library=True),show_cds),
+             restore_library=restore_library)
     finish_page()
 
 
@@ -987,7 +1001,7 @@ tk.Label(sidebar, text="YOUR COLLECTION", font=("Arial", 8, "bold"),
 
 for name, command in [
     ("Dashboard", show_dashboard), ("Games", show_games), ("Movies", show_movies),
-    ("Shows", show_shows), ("Books", show_books), ("History", show_history),
+    ("Shows", show_shows), ("Books", show_books), ("CDs", show_cds), ("History", show_history),
     ("Settings", show_settings)
 ]:
     if name == "History":
@@ -1033,3 +1047,4 @@ tk.Button(sidebar, text="Exit", font=("Arial", 10), command=close_app,
 
 show_dashboard()
 window.mainloop()
+

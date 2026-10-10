@@ -5,6 +5,7 @@ import io
 import hashlib
 import re
 import threading
+import queue
 import uuid
 from media_naming import clean_name
 import urllib.request
@@ -21,7 +22,7 @@ except ImportError:
     Image = ImageTk = ImageOps = None
 
 ART_ROOT = PROJECT_ROOT / 'assets' / 'artwork'
-CATEGORIES = ('games', 'movies', 'shows', 'books')
+CATEGORIES = ('games', 'movies', 'shows', 'books', 'cds')
 
 def classify(w, h):
     if w > h * 1.12: return 'Landscape'
@@ -31,7 +32,7 @@ def classify(w, h):
 def options(kind, result):
     """Offer known provider images; do not pretend a provider has alternatives."""
     cover = result.get('cover') or ''
-    choices = []
+    choices = list(result.get('artwork_options') or [])
     if cover: choices.append(('Provider artwork', cover))
     if kind == 'games' and result.get('source') == 'Steam':
         appid = str(result.get('detail', ''))
@@ -143,10 +144,14 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
     previous_grab=win.grab_current()
     win._artwork_changed=False
     manager_closed={'value':False}
+    online={'job':None,'cancel':threading.Event(),'busy':False,'index':0}
+    online_queue=queue.Queue()
     def close_manager(event=None):
         if manager_closed['value']:
             return 'break'
         manager_closed['value']=True
+        online['cancel'].set()
+        if online['job']:win.after_cancel(online['job'])
         changed=win._artwork_changed
         try:set_setting('artwork_window_size',f'{win.winfo_width()}x{win.winfo_height()}')
         except Exception:pass
@@ -173,7 +178,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
     tk.Label(toolbar,text='Minimum width:',bg=BG,fg=TEXT).pack(side='left',padx=(14,5))
     ttk.Combobox(toolbar,textvariable=minimum_width,values=list(minimum_widths),
                  state='readonly',width=13).pack(side='left')
-    role_values=['All roles','Current Cover'] + (['Current Logo','Current Background'] if kind=='games' else ['Current Background'] if kind in ('movies','shows','books') else [])
+    role_values=['All roles','Current Cover'] + (['Current Logo','Current Background'] if kind=='games' else ['Current Background'] if kind in ('movies','shows','books','cds') else [])
     saved_role=get_setting('artwork_filter_role_'+kind,'All roles')
     role_filter=tk.StringVar(value=saved_role if saved_role in role_values else 'All roles')
     ttk.Combobox(toolbar,textvariable=role_filter,values=role_values,state='readonly',width=19).pack(side='left',padx=10)
@@ -226,7 +231,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             from details import _game_art_paths
             logo,background=_game_art_paths(item_id)
             assigned.update({'Current Logo':logo,'Current Background':background})
-        if kind in ('movies','shows','books'):
+        if kind in ('movies','shows','books','cds'):
             from movie_cinematic import background_path
             assigned['Current Background']=background_path(item_id,kind)
         return assigned
@@ -374,23 +379,50 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         for path in current_assignments().values():load_path(path)
         display()
     load_saved()
-    def download_candidates(candidates):
-        status.set('Checking online artwork…')
+    candidates=list(dict((url,(label,url)) for label,url in (results or [])).values())
+    online_info=tk.StringVar(value='')
+    online_bar=tk.Frame(win,bg=BG);online_bar.pack(fill='x',padx=18,pady=3)
+    tk.Label(online_bar,textvariable=online_info,bg=BG,fg=MUTED).pack(side='left')
+    more=tk.Button(online_bar,text='Load more online artwork',bg=PANEL_ALT,fg=TEXT,relief='flat',padx=10,pady=5)
+    if candidates:more.pack(side='right')
+    else:online_bar.pack_forget()
+    def download_candidates():
+        if online['busy'] or online['index']>=len(candidates):return
+        batch=candidates[online['index']:online['index']+20]
+        online['index']+=len(batch);online['busy']=True;more.configure(state='disabled')
+        online_info.set(f"Loading artwork {online['index']-len(batch)+1}–{online['index']} of {len(candidates)}…")
         def work():
-            found=[]
-            for label,url in candidates:
+            if kind=='cds':
+                from cd_artwork import download_batch
+                download_batch(batch,online['cancel'],lambda event,value:online_queue.put((event,value)) if event in ('image','done') else None)
+                return
+            for label,url in batch:
+                if online['cancel'].is_set():return
                 try:
-                    raw,w,h,ext=fetch(url)
-                    found.append((raw,w,h,ext,label,url))
-                except Exception:continue
-            try:win.after(0,lambda:finish(found))
-            except RuntimeError:pass
-        def finish(found):
-            if not win.winfo_exists():return
-            for raw,w,h,ext,label,url in found:add_image(raw,w,h,ext,label,url)
-            display()
+                    raw,w,h,ext=fetch(url);online_queue.put(('image',(raw,w,h,ext,label,url)))
+                except Exception:pass
+            online_queue.put(('done',None))
         threading.Thread(target=work,daemon=True).start()
-    if results:download_candidates(results)
+    def poll_online():
+        online['job']=None
+        if manager_closed['value']:return
+        changed=False
+        try:
+            for _ in range(6):
+                kind_,value=online_queue.get_nowait()
+                if kind_=='image':
+                    raw,w,h,ext,label,url=value;add_image(raw,w,h,ext,label,url);changed=True
+                else:
+                    online['busy']=False
+                    remaining=len(candidates)-online['index']
+                    more.configure(state='normal' if remaining else 'disabled')
+                    online_info.set(f"{online['index']} of {len(candidates)} online images checked · {remaining} remaining")
+        except queue.Empty:pass
+        if changed:display()
+        online['job']=win.after(100,poll_online)
+    more.configure(command=download_candidates)
+    if candidates:
+        online['job']=win.after(100,poll_online);download_candidates()
     def add_local():
         filenames=filedialog.askopenfilenames(parent=win,title='Choose Artwork Images',initialdir=import_folder('artwork'),
                     filetypes=[('Images','*.png *.jpg *.jpeg *.webp *.bmp'),('All files','*.*')])
@@ -495,7 +527,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         display()
         info.set(f'{saved} saved · {already_saved} already local · {missing} missing skipped. Continue choosing artwork or close when finished.')
     def set_role(role):
-        if kind != 'games' and not (kind in ('movies','shows','books') and role=='background_path'): return
+        if kind != 'games' and not (kind in ('movies','shows','books','cds') and role=='background_path'): return
         if len(selected['indices'])>1:
             messagebox.showinfo('Choose One Image','Click one image to assign its artwork role.',parent=win)
             return
@@ -509,7 +541,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             if not e['path']:
                 e['path']=store(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],set_cover=False)
                 win._artwork_changed=True
-            if kind in ('movies','shows','books'):
+            if kind in ('movies','shows','books','cds'):
                 from movie_cinematic import set_background
                 set_background(item_id,e['path'],kind)
             else:
@@ -539,7 +571,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             logo,bg=_game_art_paths(item_id)
             if path==logo:refs.append('logo')
             if path==bg:refs.append('background')
-        if kind in ('movies','shows','books'):
+        if kind in ('movies','shows','books','cds'):
             from movie_cinematic import background_path
             if path==background_path(item_id,kind):refs.append('background')
         try:
@@ -554,7 +586,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
                 connection.execute('DELETE FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',(kind,item_id,path))
                 if 'cover' in refs:
                     connection.execute(f'UPDATE {kind} SET cover_path=NULL WHERE id=? AND cover_path=?',(item_id,path))
-                if kind in ('movies','shows','books') and 'background' in refs:
+                if kind in ('movies','shows','books','cds') and 'background' in refs:
                     connection.execute(f'UPDATE {kind} SET background_path=NULL WHERE id=? AND background_path=?',(item_id,path))
                 if kind=='games':
                     from details import _set_game_art
@@ -575,7 +607,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             require_unlocked(kind,item_id,role)
             label={'cover_path':'Current Cover','logo_path':'Current Logo',
                    'background_path':'Current Background'}.get(role)
-            if label is None or (kind!='games' and role!='cover_path' and not (kind in ('movies','shows','books') and role=='background_path')):return
+            if label is None or (kind!='games' and role!='cover_path' and not (kind in ('movies','shows','books','cds') and role=='background_path')):return
             path=current_assignments().get(label)
             # Keep older assigned images available in the collection after clearing.
             for e in entries:
@@ -585,7 +617,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             if role=='cover_path':
                 with connection:
                     connection.execute(f'UPDATE {kind} SET cover_path=NULL WHERE id=?',(item_id,))
-            elif kind in ('movies','shows','books') and role=='background_path':
+            elif kind in ('movies','shows','books','cds') and role=='background_path':
                 from movie_cinematic import set_background
                 set_background(item_id,None,kind)
             elif kind=='games' and role in ('logo_path','background_path'):
@@ -657,7 +689,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
     if kind=='games':
         for label,role in [('Set as Logo','logo_path'),('Set as Background','background_path')]:
             assign_menu.add_command(label=label,command=lambda r=role:set_role(r))
-    if kind in ('movies','shows','books'):
+    if kind in ('movies','shows','books','cds'):
         assign_menu.add_command(label='Set as Background',command=lambda:set_role('background_path'))
     clear_menu=tk.Menu(assign_menu,tearoff=False,bg=PANEL_ALT,fg=TEXT,
                        activebackground=accent,activeforeground='white')
@@ -665,11 +697,11 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
     if kind=='games':
         for label,role in [('Clear Logo','logo_path'),('Clear Background','background_path')]:
             clear_menu.add_command(label=label,command=lambda r=role:clear_assignment(r))
-    if kind in ('movies','shows','books'):
+    if kind in ('movies','shows','books','cds'):
         clear_menu.add_command(label='Clear Background',command=lambda:clear_assignment('background_path'))
     protection_menu=tk.Menu(assign_menu,tearoff=False,bg=PANEL_ALT,fg=TEXT,
                             activebackground=accent,activeforeground='white')
-    for label,role in [('Cover','cover_path')]+([('Logo','logo_path'),('Background','background_path')] if kind=='games' else [('Background','background_path')] if kind in ('movies','shows','books') else []):
+    for label,role in [('Cover','cover_path')]+([('Logo','logo_path'),('Background','background_path')] if kind=='games' else [('Background','background_path')] if kind in ('movies','shows','books','cds') else []):
         protection_menu.add_command(label='Lock / Unlock '+label,command=lambda r=role:toggle_protection(r))
     assign_menu.add_cascade(label='Protection',menu=protection_menu)
     assign_menu.add_separator()

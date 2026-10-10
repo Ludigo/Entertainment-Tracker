@@ -92,7 +92,7 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     scrollbar.config(command=show_table.yview)
 
     for column in columns:
-        show_table.heading(column, text=column)
+        show_table.heading(column, text='Seasons' if column=='Season' else 'Watches by Season' if column=='Watch Count' else column)
 
     show_table.column("ID", width=40, anchor="center")
     show_table.column("Show", width=220)
@@ -162,33 +162,20 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
 
         condition, values, ordering = where_clause("shows", search, filters)
         cursor.execute("SELECT * FROM shows WHERE " + condition + " ORDER BY " + ordering, values)
-        shows = cursor.fetchall()
-        filtered_ids = [row[0] for row in shows]
-        filters["count"].configure(text=f"Showing {len(shows)} items")
-
-        for show in shows:
-
-            show_table.insert(
-                "",
-                "end",
-                values=(
-                    show[0],
-                    show[1],
-                    show[2],
-                    format_time(show[3]),
-                    show[4],
-                    show[5],
-                    "Yes" if show[6] else "No",
-                    "Yes" if show[7] else "No",
-                    show[8],
-                    "Yes" if show[9] else "No",
-                    show[10] or "",
-                    show[11] or ""
-                )
-            )
-
-
-        if view_mode.get() == "Covers":
+        matched = cursor.fetchall()
+        from show_series import groups, totals, matches_status
+        listings = [g for g in groups([row[0] for row in matched]) if matches_status(g['members'],filters['status'].get())]
+        filtered_ids = [group['id'] for group in listings]
+        filters['count'].configure(text=f"Showing {len(listings)} shows · {sum(len(g['members']) for g in listings)} saved season entries")
+        for group in listings:
+            members=group['members']; summary=totals(members); first=members[0]
+            show_table.insert('', 'end', values=(group['id'],group['name'],
+                f"{summary['seasons']} season" + ('s' if summary['seasons']!=1 else ''),
+                format_time(summary['runtime']),summary['episodes'],summary['reached'],
+                'Yes' if summary['completed'] else 'No','Yes' if summary['in_progress'] else 'No',
+                ' / '.join(str(r.get('watch_count') or 0) for r in members),
+                'Yes' if summary['owned'] else 'No',first.get('type') or '',first.get('genre') or ''))
+        if view_mode.get() == 'Covers':
             grid_view.set_search(search, filtered_ids=filtered_ids)
 
     # -------------------------
@@ -598,8 +585,10 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
             return
         item_id = show_table.item(selected[0], 'values')[0]
         from rich_details import open_rich_editor
-        open_rich_editor(shows_window, 'shows', item_id, get_setting('accent_color', '#B23A48'),
-                         lambda: load_shows(search_entry.get()))
+        from show_series import choose_season
+        choose_season(shows_window,item_id,get_setting('accent_color','#B23A48'),
+                      lambda season_id:open_rich_editor(shows_window,'shows',season_id,get_setting('accent_color','#B23A48'),
+                          lambda:load_shows(search_entry.get())))
 
 
     # -------------------------
@@ -624,24 +613,14 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
 
         show_id = values[0]
         show_name = values[1]
-        season = values[2]
-
-        confirm = messagebox.askyesno(
-            "Delete Show",
-            f"Delete '{show_name}' Season {season}?"
-        )
-
-        if not confirm:
-            return
-
-        cursor.execute("""
-        DELETE FROM shows
-        WHERE id = ?
-        """, (show_id,))
-
-        connection.commit()
-        load_shows()
-
+        from show_series import seasons
+        members=seasons(show_id)
+        confirm=messagebox.askyesno('Delete Show Listing',
+            f"Delete '{show_name}' and all {len(members)} saved season entries?\nThis removes their collection records.")
+        if not confirm:return
+        with connection:
+            connection.executemany('DELETE FROM shows WHERE id=?',[(r['id'],) for r in members])
+        load_shows(search_entry.get())
 
     # -------------------------
     # BUTTONS

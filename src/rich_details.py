@@ -34,6 +34,12 @@ FIELDS = {
               ('network', 'Network / service', 'text'), ('rating', 'Rating', 'text'),
               ('price_paid', 'Price paid (£)', 'money'), ('description', 'Description', 'multiline'),
               ('notes', 'Personal notes', 'multiline')],
+    'cds': [('name','Album title','required'), ('artist','Artist','text'),
+            ('release_year','Release year','int'), ('genre','Genre','text'), ('label','Label','text'),
+            ('barcode','Barcode','text'), ('disc_count','Disc count','count'), ('price_paid','Price paid (£)','money'),
+            ('listening_time','Listening time (H:MM:SS)','duration'), ('play_count','Full album plays','count'),
+            ('owned_physical','Owned physically','bool'), ('owned_digital','Owned digitally','bool'),
+            ('description','Album description','multiline'), ('notes','Personal notes','multiline')],
     'books': [('name', 'Book name', 'required'), ('page_count', 'Page count', 'count'),
               ('page_reached', 'Page reached (leave blank if unknown)', 'optional_count'),
               ('reading_time', 'Reading time (H:MM:SS)', 'duration'), ('read_count', 'Read count', 'count'),
@@ -92,6 +98,8 @@ def parse_values(kind, raw_values):
             values[key] = value
         except (ValueError, OverflowError) as exc:
             raise InvalidField(key, str(exc)) from exc
+    if kind == 'cds' and values['disc_count'] < 1:
+        raise InvalidField('disc_count','Disc count must be at least 1.')
     if kind == 'shows' and values['episode_reached'] > values['episode_count']:
         raise InvalidField('episode_reached', 'Episode reached cannot exceed episode count.')
     if kind == 'books' and values['page_reached'] is not None:
@@ -132,6 +140,9 @@ def save_values(kind, item_id, raw_values, game_art=None, original_record=None):
 
 
 def open_rich_editor(parent, kind, item_id, accent, refresh):
+    if kind == 'cds':
+        from cd_editor import open_editor
+        return open_editor(parent,accent,lambda _:refresh(),item_id)
     if kind not in FIELDS:
         return
     row = connection.execute(f'SELECT * FROM {kind} WHERE id=?', (item_id,)).fetchone()

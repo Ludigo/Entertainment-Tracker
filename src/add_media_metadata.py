@@ -55,7 +55,7 @@ def create_media(kind, raw_values, cover=None, background=None, extras=()):
         raise
 
 
-def load_tmdb(kind, item, token, season=None):
+def load_tmdb(kind, item, token, season=None, *, download_artwork=True):
     """Strict detail reads; missing episode runtimes never become guessed totals."""
     from metadata_finder import get_json, HEADERS, plain
     if not token.strip():raise ValueError('Enter a TMDB API Read Access Token.')
@@ -95,8 +95,14 @@ def load_tmdb(kind, item, token, season=None):
         for key,label,size in [('poster_path','Poster','w780'),('backdrop_path','Background','original')]:
             if source.get(key):urls.append((label,f'https://image.tmdb.org/t/p/{size}'+source[key]))
         for key,label,size in [('posters','Poster','w780'),('backdrops','Background','original')]:
-            for image in (source.get('images') or {}).get(key,[])[:5]:
+            for image in ((source.get('images') or {}).get(key,[])[:5] if download_artwork else (source.get('images') or {}).get(key,[])):
                 if image.get('file_path'):urls.append((label,f'https://image.tmdb.org/t/p/{size}'+image['file_path']))
+    if not download_artwork:
+        for image in (data.get('images') or {}).get('logos',[]):
+            if image.get('file_path'):urls.append(('Logo','https://image.tmdb.org/t/p/original'+image['file_path']))
+    urls=list(dict((url,(label,url)) for label,url in urls).values())
+    if not download_artwork:
+        return {'fields':fields,'seasons':seasons,'images':[], 'image_options':urls,'warning':warning}
     from artwork_manager import fetch
     from add_game_metadata import validated_cover
     images=[];seen=set();failures=0
@@ -114,7 +120,7 @@ def populated(value):
     return str(value or '').strip() not in ('','0','0:00:00','00:00:00')
 
 
-def open_add_media(parent, kind, accent, refresh):
+def open_add_media(parent, kind, accent, refresh, initial_values=None):
     from add_game_metadata import choose_local_cover, preview_cover, choose_artwork, image_digest
     if kind not in ('movies','shows'):raise ValueError('Invalid category')
     win=tk.Toplevel(parent);polish_dialog(win);win.title('Add '+('Movie' if kind=='movies' else 'Show'))
@@ -180,6 +186,8 @@ def open_add_media(parent, kind, accent, refresh):
             w=widgets[key];multi=next(t for k,_,t in FIELDS[kind] if k==key)=='multiline'
             w.delete('1.0' if multi else 0,'end');w.insert('1.0' if multi else 0,str(value))
         stage.update(cover=cover,background=background,extras=extras,available=available);summary()
+    if initial_values:
+        apply({key:value for key,value in initial_values.items() if key in widgets and key not in variables},None,None,[],[])
     initial=signature()
     def save():
         try:
