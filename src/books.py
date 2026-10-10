@@ -590,38 +590,14 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     # -------------------------
 
     def edit_book():
-
         selected = book_table.selection()
-
         if not selected:
-
-            messagebox.showwarning(
-                "No Book Selected",
-                "Please select a book to edit."
-            )
-
+            messagebox.showwarning('No Book Selected', 'Please select a book to edit.')
             return
-
-
-        book_id = book_table.item(
-            selected[0],
-            "values"
-        )[0]
-
-
-        cursor.execute("""
-        SELECT * FROM books
-        WHERE id = ?
-        """, (
-            book_id,
-        ))
-
-
-        book = cursor.fetchone()
-
-
-        if book:
-            book_form(book)
+        item_id = book_table.item(selected[0], 'values')[0]
+        from rich_details import open_rich_editor
+        open_rich_editor(books_window, 'books', item_id, get_setting('accent_color', '#B23A48'),
+                         lambda: load_books(search_entry.get()))
 
 
     # -------------------------

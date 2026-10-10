@@ -590,30 +590,14 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     # -------------------------
 
     def edit_show():
-
         selected = show_table.selection()
-
         if not selected:
-            messagebox.showwarning(
-                "No Show Selected",
-                "Please select a show to edit."
-            )
+            messagebox.showwarning('No Show Selected', 'Please select a show to edit.')
             return
-
-        show_id = show_table.item(
-            selected[0],
-            "values"
-        )[0]
-
-        cursor.execute("""
-        SELECT * FROM shows
-        WHERE id = ?
-        """, (show_id,))
-
-        show = cursor.fetchone()
-
-        if show:
-            show_form(show)
+        item_id = show_table.item(selected[0], 'values')[0]
+        from rich_details import open_rich_editor
+        open_rich_editor(shows_window, 'shows', item_id, get_setting('accent_color', '#B23A48'),
+                         lambda: load_shows(search_entry.get()))
 
 
     # -------------------------

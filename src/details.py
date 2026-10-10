@@ -419,23 +419,17 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
 
     if kind in ("movies", "shows", "books"):
         from rich_details import open_rich_editor
-        tk.Button(top, text="Extra Details", bg=PANEL_ALT, fg=TEXT,
+        tk.Button(top, text="Edit", bg=accent, fg="white",
                   relief="flat", padx=14, pady=8,
                   command=lambda: open_rich_editor(page, kind, item_id, accent,
                       lambda: show_detail(parent, kind, item_id, accent, on_back, on_edit))).pack(
                           side="right", padx=5)
 
-    if on_edit:
+    if on_edit and kind == "games":
         tk.Button(top, text="Edit", command=lambda: on_edit(item_id), bg=accent, fg="white",
                   activebackground=accent, activeforeground="white", relief="flat", bd=0,
                   font=('Arial', 10, 'bold'), padx=18, pady=9,
                   cursor="hand2").pack(side="right", padx=(6, 0))
-
-    if kind == "books":
-        from manual_timer import open_timer
-        tk.Button(top, text="Reading Timer", bg=accent, fg="white",
-                  relief="flat", command=lambda: open_timer(
-                      parent, kind, item_id, title, accent)).pack(side="right", padx=5)
 
     if full_art:
         body = tk.Canvas(page_container, bg=BG, bd=0, highlightthickness=0)
@@ -737,7 +731,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                   bg=PANEL_ALT, fg=TEXT, relief='flat', padx=14, pady=10,
                   cursor='hand2').pack(fill='x', pady=(0, 4))
 
-    if kind == "games":
+    if kind in ("games", "books"):
         from manual_timer import clock
         root = parent.winfo_toplevel()
         timer = root.manual_timer
@@ -745,7 +739,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         timer_panel = tk.Frame(left, bg=PANEL_ALT, highlightthickness=1,
                                highlightbackground=BORDER, padx=10, pady=10)
         timer_panel.pack(fill='x', pady=(8, 0))
-        tk.Label(timer_panel, text='PROGRESS TIMER', bg=PANEL_ALT, fg=TEXT,
+        tk.Label(timer_panel, text='READING TIMER' if kind == 'books' else 'PROGRESS TIMER', bg=PANEL_ALT, fg=TEXT,
                  font=('Arial', 11, 'bold')).pack(pady=(0, 10))
         timer_clock = tk.Label(timer_panel, text='00:00:00', bg=PANEL, fg=TEXT,
                                font=('Arial', 23), pady=8)
@@ -753,7 +747,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         controls = tk.Frame(timer_panel, bg=PANEL_ALT)
         controls.pack(fill='x', pady=(10, 0))
         def same():
-            return timer.kind == 'games' and timer.item_id == item_id
+            return timer.kind == kind and timer.item_id == item_id
         def start_pause():
             try:
                 if same() and timer.since is not None:
@@ -761,23 +755,29 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                 elif same():
                     timer.resume()
                 else:
-                    if tracker and item_id in tracker.active:
+                    if kind == 'games' and tracker and item_id in tracker.active:
                         raise ValueError('Automatic tracking is active. Stop the game first.')
-                    timer.start('games', item_id, title)
+                    timer.start(kind, item_id, title)
             except ValueError as exc:
                 messagebox.showwarning('Progress Timer', str(exc))
             update_timer()
         def add_time():
             if not same(): return
             try:
-                from session_notes import ask_session_note
-                note=ask_session_note(page,accent)
-                if note is None:return
+                note = ''
+                if kind == 'games':
+                    from session_notes import ask_session_note
+                    note=ask_session_note(page,accent)
+                    if note is None:return
                 seconds = timer.stop(tracker,note=note)
             except ValueError as exc:
                 messagebox.showwarning('Progress Timer', str(exc))
                 return
-            messagebox.showinfo('Progress Timer', f'{clock(seconds)} added to playtime.')
+            messagebox.showinfo('Progress Timer', f'{clock(seconds)} added to ' +
+                                ('reading time.' if kind == 'books' else 'playtime.'))
+            if kind == 'books':
+                show_detail(parent, kind, item_id, accent, on_back, on_edit)
+                return
             update_timer()
         def reset_time():
             if not same():
@@ -819,10 +819,17 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                                 if active else 'Start',
                                 state='normal' if active or timer.kind is None else 'disabled')
             add_btn.configure(state='normal' if active else 'disabled')
+        timer_job = {'id': None}
         def tick():
+            timer_job['id'] = None
             if not timer_panel.winfo_exists(): return
             update_timer()
-            timer_panel.after(250, tick)
+            timer_job['id'] = timer_panel.after(250, tick)
+        def cancel_tick(event):
+            if event.widget is timer_panel and timer_job['id'] is not None:
+                timer_panel.after_cancel(timer_job['id'])
+                timer_job['id'] = None
+        timer_panel.bind('<Destroy>', cancel_tick, add='+')
         tick()
 
     right_holder = tk.Frame(body, bg=BG, highlightthickness=0)
