@@ -101,14 +101,24 @@ def preview_cover(parent,cover):
     win.bind('<Escape>',close)
 
 
-def staged_signature(metadata,cover):
-    return tuple(sorted(metadata.items())),hashlib.sha256(cover['raw']).hexdigest() if cover else None
+def image_digest(image):
+    return hashlib.sha256(image['raw']).hexdigest()
 
 
-def create_game(values, metadata=None, cover=None):
+def staged_signature(metadata,cover,extras=(),lock_cover=False):
+    return (tuple(sorted(metadata.items())),image_digest(cover) if cover else None,
+            tuple(sorted({image_digest(image) for image in extras})),bool(lock_cover))
+
+
+def create_game(values, metadata=None, cover=None, extras=(), lock_cover=False):
     """No downloads on Save; reviewed bytes and SQLite changes commit together."""
-    metadata=metadata or {};created=None
+    from artwork_preferences import lock_key
+    metadata=metadata or {};created=[];images=[];seen=set()
     if cover:cover=validated_cover(cover['raw'],cover['label'],cover['source'])
+    for image in ([cover] if cover else [])+list(extras):
+        image=validated_cover(image['raw'],image['label'],image['source'])
+        digest=image_digest(image)
+        if digest not in seen:images.append(image);seen.add(digest)
     try:
         with connection:
             result=connection.execute('INSERT INTO games (name,platform,playtime,price_paid,completed,backlog,started,description) VALUES (?,?,?,?,?,?,?,?)',values)
@@ -118,28 +128,117 @@ def create_game(values, metadata=None, cover=None):
                 if value is not None and str(value).strip():
                     if field=='release_year':value=int(value)
                     connection.execute(f'UPDATE games SET {field}=? WHERE id=?',(value,game_id))
-            if cover:
+            for index,image in enumerate(images):
                 folder=PROJECT_ROOT/'assets'/'artwork'/'games';folder.mkdir(parents=True,exist_ok=True)
-                created=folder/f'{clean_name(values[0])} - Cover - {uuid.uuid4().hex[:12]}{cover["ext"]}'
-                created.write_bytes(cover['raw'])
-                path=created.relative_to(PROJECT_ROOT).as_posix()
+                role='Cover' if cover and index==0 else 'Artwork'
+                target=folder/f'{clean_name(values[0])} - {role} - {uuid.uuid4().hex[:12]}{image["ext"]}'
+                created.append(target);target.write_bytes(image['raw'])
+                path=target.relative_to(PROJECT_ROOT).as_posix()
                 connection.execute('INSERT INTO artwork_library(category,item_id,image_path,width,height,source) VALUES(?,?,?,?,?,?)',
-                                   ('games',game_id,path,cover['w'],cover['h'],cover['source']))
-                connection.execute('UPDATE games SET cover_path=? WHERE id=?',(path,game_id))
+                                   ('games',game_id,path,image['w'],image['h'],image['source']))
+                if cover and index==0:connection.execute('UPDATE games SET cover_path=? WHERE id=?',(path,game_id))
+            if cover and lock_cover:
+                connection.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                                   (lock_key('games',game_id,'cover_path'),'1'))
         return game_id
     except Exception:
-        if created:created.unlink(missing_ok=True)
+        for target in created:target.unlink(missing_ok=True)
         raise
+
+
+def review_text(parent,label,current,proposed):
+    win=tk.Toplevel(parent);polish_dialog(win);win.title(label+' — Full Metadata Preview')
+    win.geometry('820x650');win.configure(bg=BG);win.transient(parent.winfo_toplevel())
+    previous=win.grab_current();win.grab_set()
+    def close(event=None):
+        win.destroy()
+        if previous is not None:
+            try:
+                if previous.winfo_exists():previous.grab_set()
+            except tk.TclError:pass
+        return 'break'
+    win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',close)
+    frame=tk.Frame(win,bg=BG);frame.pack(fill='both',expand=True,padx=14,pady=14)
+    text=tk.Text(frame,wrap='word',bg=PANEL,fg=TEXT,relief='flat',padx=12,pady=12)
+    scroll=ttk.Scrollbar(frame,command=text.yview);scroll.pack(side='right',fill='y')
+    text.configure(yscrollcommand=scroll.set);text.pack(fill='both',expand=True)
+    text.insert('1.0',f'CURRENT {label.upper()}\n\n{current or "(empty)"}\n\nPROPOSED {label.upper()}\n\n{proposed}')
+    text.configure(state='disabled')
+    tk.Button(win,text='Close',command=close,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=15,pady=7).pack(pady=(0,12))
+    return win
+
+
+def choose_artwork(parent,accent,available,cover,extras,on_choose):
+    """All choices are downloaded bytes; filters never discard selections."""
+    images=list(available);seen={image_digest(image) for image in images}
+    for image in ([cover] if cover else [])+list(extras):
+        if image_digest(image) not in seen:images.append(image);seen.add(image_digest(image))
+    win=tk.Toplevel(parent);polish_dialog(win);win.title('Choose Available Game Artwork')
+    win.geometry('900x720');win.minsize(650,500);win.configure(bg=BG);win.transient(parent.winfo_toplevel())
+    previous=win.grab_current();win.grab_set()
+    def close(event=None):
+        win.destroy()
+        if previous is not None:
+            try:
+                if previous.winfo_exists():previous.grab_set()
+            except tk.TclError:pass
+        return 'break'
+    win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',close)
+    tk.Label(win,text='Choose one cover; tick extra images to keep in Artwork Manager.',bg=BG,fg=TEXT,
+             wraplength=820,justify='left').pack(anchor='w',padx=16,pady=12)
+    sizes={'All sizes':0,'512 px+':512,'1280 px+':1280,'1920 px+':1920,'3840 px+':3840}
+    minimum=tk.StringVar(value='All sizes');chosen=tk.StringVar(value=image_digest(cover) if cover else '')
+    selected={image_digest(image):tk.BooleanVar(value=any(image_digest(extra)==image_digest(image) for extra in extras)) for image in images}
+    toolbar=tk.Frame(win,bg=BG);toolbar.pack(fill='x',padx=16)
+    tk.Label(toolbar,text='Minimum width:',bg=BG,fg=TEXT).pack(side='left')
+    combo=ttk.Combobox(toolbar,textvariable=minimum,values=list(sizes),state='readonly',width=14);combo.pack(side='left',padx=8)
+    count=tk.StringVar();tk.Label(toolbar,textvariable=count,bg=BG,fg=MUTED).pack(side='left')
+    frame=tk.Frame(win,bg=BG);frame.pack(fill='both',expand=True,padx=16,pady=12)
+    canvas=tk.Canvas(frame,bg=BG,highlightthickness=0);scroll=ttk.Scrollbar(frame,command=canvas.yview);scroll.pack(side='right',fill='y')
+    canvas.configure(yscrollcommand=scroll.set);canvas.pack(fill='both',expand=True)
+    rows=tk.Frame(canvas,bg=BG);window_id=canvas.create_window(0,0,window=rows,anchor='nw')
+    rows.bind('<Configure>',lambda event:canvas.configure(scrollregion=canvas.bbox('all')))
+    canvas.bind('<Configure>',lambda event:canvas.itemconfigure(window_id,width=event.width))
+    photos=[]
+    def render(event=None):
+        for child in rows.winfo_children():child.destroy()
+        photos.clear();visible=[image for image in images if image['w']>=sizes[minimum.get()]]
+        count.set(f'{len(visible)} of {len(images)} images · selections retained when filtering')
+        for image in visible:
+            row=tk.Frame(rows,bg=PANEL);row.pack(fill='x',pady=5)
+            with Image.open(io.BytesIO(image['raw'])) as picture:thumbnail=ImageOps.contain(picture.convert('RGBA'),(200,160))
+            photo=ImageTk.PhotoImage(thumbnail);photos.append(photo)
+            preview=tk.Label(row,image=photo,bg=PANEL,cursor='hand2');preview.pack(side='left',padx=10,pady=10)
+            preview.bind('<Button-1>',lambda event,image=image:preview_cover(win,image))
+            tk.Label(row,text=f"{image['label']}\n{image['w']} × {image['h']} · {len(image['raw'])/1024:.1f} KB",
+                     bg=PANEL,fg=TEXT,wraplength=400,justify='left').pack(anchor='w',padx=10,pady=(12,6))
+            tk.Radiobutton(row,text='Use as cover',variable=chosen,value=image_digest(image),bg=PANEL,fg=TEXT,
+                           selectcolor=PANEL_ALT).pack(anchor='w',padx=10)
+            tk.Checkbutton(row,text='Save in artwork collection',variable=selected[image_digest(image)],bg=PANEL,fg=TEXT,
+                           selectcolor=PANEL_ALT).pack(anchor='w',padx=10,pady=(0,10))
+        if not visible:tk.Label(rows,text='No available images meet this minimum width.',bg=BG,fg=MUTED).pack(pady=25)
+        canvas.yview_moveto(0)
+    combo.bind('<<ComboboxSelected>>',render)
+    footer=tk.Frame(win,bg=BG);footer.pack(fill='x',padx=16,pady=(0,14))
+    def apply():
+        cover=next((image for image in images if image_digest(image)==chosen.get()),None)
+        extras=[image for image in images if selected[image_digest(image)].get() and image is not cover]
+        on_choose(cover,extras)
+    tk.Button(footer,text='Use Choices',command=apply,bg=accent,fg='white',relief='flat',padx=14,pady=8).pack(side='right')
+    tk.Button(footer,text='Close',command=close,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=14,pady=8).pack(side='right',padx=8)
+    tk.Radiobutton(footer,text='Do not replace cover',variable=chosen,value='',bg=BG,fg=TEXT,selectcolor=PANEL_ALT).pack(side='left')
+    render();return win
 
 
 def open_search(parent,accent,current_values,on_apply):
     """Search existing Steam provider, review choices and stage them in the form."""
     from metadata_finder import search_provider,enrich
-    from artwork_manager import fetch
+    from artwork_manager import fetch,options
     win=tk.Toplevel(parent);polish_dialog(win);win.title('Add Game — Steam Search and Review')
     win.geometry('980x760');win.minsize(750,590);win.configure(bg=BG)
     win.transient(parent.winfo_toplevel());previous_grab=win.grab_current();win.grab_set()
-    state={'closed':False,'generation':0,'item':None,'cover':None,'checks':{},'photo':None,'busy':False}
+    state={'closed':False,'generation':0,'item':None,'cover':None,'checks':{},'photo':None,'busy':False,
+           'available':[],'extras':list(current_values().get('_extras',()))}
     messages=queue.Queue()
     def close(event=None):
         state['closed']=True;state['generation']+=1
@@ -182,6 +281,22 @@ def open_search(parent,accent,current_values,on_apply):
     use_cover=tk.BooleanVar(value=False)
     cover_check=tk.Checkbutton(right,text='Use this cover',variable=use_cover,bg=PANEL_ALT,fg=TEXT,selectcolor=PANEL,state='disabled')
     cover_check.pack(side='bottom',pady=6,before=cover_label)
+    lock_cover=tk.BooleanVar(value=bool(current_values().get('_lock_cover')))
+    tk.Checkbutton(right,text='Protect chosen cover',variable=lock_cover,bg=PANEL_ALT,fg=TEXT,
+                   selectcolor=PANEL).pack(side='bottom',pady=3,before=cover_label)
+    artwork_info=tk.StringVar(value='No extra images selected')
+    tk.Label(right,textvariable=artwork_info,bg=PANEL_ALT,fg=MUTED,wraplength=215).pack(side='bottom',pady=5,before=cover_label)
+    def artwork_choices():
+        if state['busy']:status.set('Wait for the artwork request to finish.');return
+        if not state['available'] and not state['cover'] and not state['extras']:
+            status.set('Select a Steam result with available artwork first.');return
+        def chosen(cover,extras):
+            show_cover(cover,bool(cover));state['extras']=extras
+            artwork_info.set(f'{len(extras)} extra images selected')
+            status.set('Artwork choices staged here. Apply Selected to Form transfers them to Add Game.')
+        choose_artwork(win,accent,state['available'],state['cover'] if use_cover.get() else None,state['extras'],chosen)
+    tk.Button(right,text='Choose available artwork…',command=artwork_choices,bg=PANEL,fg=TEXT,relief='flat',
+              padx=8,pady=6).pack(side='bottom',pady=5,before=cover_label)
     def show_cover(cover,selected=False):
         state['cover']=cover;state['photo']=None;use_cover.set(bool(cover and selected))
         cover_check.configure(state='normal' if cover else 'disabled')
@@ -191,6 +306,13 @@ def open_search(parent,accent,current_values,on_apply):
             state['photo']=ImageTk.PhotoImage(picture)
             cover_label.configure(image=state['photo'],text='')
         else:cover_label.configure(image='',text='No cover preview available. You can choose a local image or continue without artwork.')
+    def resize_cover(event):
+        cover=state['cover']
+        if not cover or event.width<10 or event.height<10:return
+        with Image.open(io.BytesIO(cover['raw'])) as image:
+            picture=ImageOps.contain(image.convert('RGBA'),(max(1,event.width-8),max(1,event.height-8)))
+        state['photo']=ImageTk.PhotoImage(picture);cover_label.configure(image=state['photo'])
+    cover_label.bind('<Configure>',resize_cover)
     def local_cover():
         try:
             cover=choose_local_cover(win)
@@ -199,9 +321,10 @@ def open_search(parent,accent,current_values,on_apply):
     tk.Button(right,text='Choose from PC…',command=local_cover,bg=PANEL,fg=TEXT,relief='flat',padx=10,pady=6).pack(side='bottom',pady=(0,10),before=cover_label)
     def clear_review():
         for child in fields.winfo_children():child.destroy()
-        state['checks'].clear();state['item']=None;show_cover(None)
-    def review(item,cover,warning=''):
+        state['checks'].clear();state['item']=None;state['available']=[];show_cover(None)
+    def review(item,available,warning=''):
         clear_review();state['item']=item
+        state['available']=available
         existing=current_values()
         for key,label in REVIEW_FIELDS:
             value=item.get(key)
@@ -212,7 +335,11 @@ def open_search(parent,accent,current_values,on_apply):
             tk.Checkbutton(row,text=label,variable=checked,bg=PANEL,fg=TEXT,selectcolor=PANEL_ALT,activebackground=PANEL).pack(anchor='w')
             tk.Label(row,text='Current: '+str(existing.get(key) or '(empty)')[:350],bg=PANEL,fg=MUTED,wraplength=450,justify='left',anchor='w').pack(fill='x',padx=22)
             tk.Label(row,text='Proposed: '+str(value)[:900],bg=PANEL,fg=TEXT,wraplength=450,justify='left',anchor='w').pack(fill='x',padx=22)
-        show_cover(cover,not bool(existing.get('_cover')))
+            if key=='description' or len(str(value))>900 or len(str(existing.get(key) or ''))>350:
+                tk.Button(row,text='Read full '+label.lower()+'…',command=lambda key=key,label=label,value=value:
+                          review_text(win,label,current_values().get(key),value),bg=PANEL_ALT,fg=TEXT,relief='flat').pack(anchor='w',padx=22,pady=4)
+        show_cover(available[0] if available else None,not bool(existing.get('_cover')))
+        artwork_info.set(f"{len(available)} available · {len(state['extras'])} extras selected")
         status.set('Tick only fields you want to use. Filled manual values are unchecked by default.'+(' '+warning if warning else ''))
     def background(work,done):
         generation=state['generation']
@@ -246,18 +373,21 @@ def open_search(parent,accent,current_values,on_apply):
         if not selection:return
         index=int(selection[0])
         if not 0<=index<len(items):return
-        state['generation']+=1;state['busy']=True;clear_review();status.set('Loading details and cover preview…')
+        state['generation']+=1;state['busy']=True;clear_review();status.set('Loading details and available artwork…')
         original=dict(items[index])
         def work():
             item=enrich('games',original)
             item=dict(item,name=item.get('title',''),platform='PC')
-            cover=None;warning=''
-            if Image is not None and item.get('cover'):
-                try:
-                    raw,w,h,ext=fetch(item['cover'])
-                    cover=validated_cover(raw,'Steam proposed cover',item['cover'])
-                except Exception:warning='The cover could not be loaded; metadata can still be used.'
-            return item,cover,warning
+            available=[];seen=set();failed=0
+            if Image is not None:
+                for label,url in options('games',item):
+                    try:
+                        raw,w,h,ext=fetch(url);image=validated_cover(raw,label,url)
+                        digest=image_digest(image)
+                        if digest not in seen:available.append(image);seen.add(digest)
+                    except Exception:failed+=1
+            warning=f'{failed} artwork options unavailable; metadata can still be used.' if failed else ''
+            return item,available,warning
         def done(value,error):
             state['busy']=False
             if error:status.set('Could not load details. Manual entry remains available. '+error);return
@@ -266,11 +396,13 @@ def open_search(parent,accent,current_values,on_apply):
     def apply():
         if state['busy']:status.set('Wait for the current search/details request to finish.');return
         item=state['item']
-        if item is None and not state['cover']:status.set('Choose a Steam result or a local cover first.');return
+        if item is None and not state['cover'] and not state['extras']:status.set('Choose a Steam result or a local cover first.');return
         updates={key:item[key] for key,var in state['checks'].items() if var.get()} if item else {}
         cover=state['cover'] if use_cover.get() else None
-        if not updates and not cover:status.set('Tick at least one field or choose a cover to apply.');return
-        on_apply(updates,cover)
+        extras_changed={image_digest(image) for image in state['extras']}!={image_digest(image) for image in current_values().get('_extras',())}
+        if not updates and not cover and not state['extras'] and not extras_changed:
+            status.set('Tick at least one field or choose artwork to apply.');return
+        on_apply(updates,cover,list(state['extras']),lock_cover.get() if cover else None)
         status.set('Selection applied to Add Game. You can review another result or close this window; Save Game completes the addition.')
     tk.Button(toolbar,text='Search Steam',command=search,bg=accent,fg='white',relief='flat',padx=12,pady=6).pack(side='left',padx=(10,0))
     entry.bind('<Return>',lambda event:search());results.bind('<<TreeviewSelect>>',selected)

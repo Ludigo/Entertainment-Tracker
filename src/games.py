@@ -414,7 +414,8 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
         modal.title("Edit Game" if game_id is not None else "Add Game")
         modal.geometry("540x740")
         modal.resizable(False, False)
-        pending={'metadata':{},'cover':None}
+        pending={'metadata':{},'cover':None,'extras':[]}
+        protect_cover=tk.BooleanVar(value=False)
         tk.Label(modal, text="Edit Game" if game_id is not None else "Add Game",
                  font=("Arial", 18, "bold")).pack(pady=(8, 12))
 
@@ -465,7 +466,8 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
             def update_staged_info():
                 cover=pending['cover']
                 text=f"{len(pending['metadata'])} metadata fields staged" if pending['metadata'] else 'Manual entry'
-                staged_info.set(text+(' · Cover selected' if cover else ' · No cover selected'))
+                staged_info.set(text+(' · Cover selected' if cover else ' · No cover selected')+
+                                f" · {len(pending['extras'])} extra images"+(' · Cover protected' if cover and protect_cover.get() else ''))
             def local_cover():
                 from add_game_metadata import choose_local_cover,preview_cover
                 try:
@@ -478,14 +480,16 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
                 if pending['cover']:preview_cover(modal,pending['cover'])
                 else:messagebox.showinfo('Game Cover','Choose a cover from Steam or your PC first.')
             def clear_cover():
-                pending['cover']=None;update_staged_info()
+                pending['cover']=None;protect_cover.set(False);update_staged_info()
             cover_menu.add_command(label='Choose from PC…',command=local_cover)
             cover_menu.add_command(label='Preview selected cover',command=review_cover)
             cover_menu.add_command(label='Clear selected cover',command=clear_cover)
+            cover_menu.add_checkbutton(label='Protect selected cover after saving',variable=protect_cover,command=update_staged_info)
             def import_current():
                 return dict(pending['metadata'],name=title_entry.get(),platform=platform_entry.get(),
-                            description=description_entry.get('1.0','end-1c'),_cover=pending['cover'])
-            def apply_import(updates,cover):
+                            description=description_entry.get('1.0','end-1c'),_cover=pending['cover'],
+                            _extras=pending['extras'],_lock_cover=protect_cover.get())
+            def apply_import(updates,cover,extras=(),lock_cover=None):
                 from add_game_metadata import METADATA_FIELDS
                 for key,widget in [('name',title_entry),('platform',platform_entry)]:
                     if key in updates:widget.delete(0,tk.END);widget.insert(0,str(updates[key]))
@@ -493,6 +497,8 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
                     description_entry.delete('1.0',tk.END);description_entry.insert('1.0',updates['description'])
                 pending['metadata'].update({key:value for key,value in updates.items() if key in METADATA_FIELDS})
                 if cover:pending['cover']=cover
+                pending['extras']=list(extras)
+                if lock_cover is not None:protect_cover.set(bool(lock_cover))
                 update_staged_info()
             def find_on_steam():
                 from add_game_metadata import open_search
@@ -506,7 +512,7 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
             return (title_entry.get(), platform_entry.get(), price_entry.get(),
                     playtime_entry.get(), description_entry.get('1.0', 'end-1c'),
                     completed_var.get(), backlog_var.get(), started_var.get(),
-                    staged_signature(pending['metadata'],pending['cover']))
+                    staged_signature(pending['metadata'],pending['cover'],pending['extras'],protect_cover.get()))
         original_values = current_form_values()
         modal.has_unsaved_changes = lambda: current_form_values() != original_values
 
@@ -540,7 +546,7 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None):
                 if matches:
                     if not confirm_duplicate(modal,matches,get_setting('accent_color','#B23A48')):
                         return
-                try:create_game(values,pending['metadata'],pending['cover'])
+                try:create_game(values,pending['metadata'],pending['cover'],pending['extras'],protect_cover.get())
                 except Exception as exc:
                     error.configure(text='Game could not be saved: '+str(exc))
                     return
