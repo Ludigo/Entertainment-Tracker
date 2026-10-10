@@ -1,4 +1,5 @@
 """Offline book facts, saved reading activity and explicit page progress."""
+from ownership import describe as describe_ownership
 from movie_cinematic import render as render_panels
 from utils import format_time
 
@@ -21,7 +22,7 @@ def book_sections(record):
                 ('Price Paid', 'Not recorded' if price is None else f'£{price:,.2f}'),
                 ('Completed', 'Yes' if record.get('completed') else 'No'),
                 ('In Progress', 'Yes' if record.get('in_progress') else 'No'),
-                ('Owned', 'Yes' if record.get('owned') else 'No')]
+                ('Ownership', describe_ownership(record))]
     return facts, activity
 
 

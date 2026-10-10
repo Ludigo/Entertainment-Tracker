@@ -158,6 +158,8 @@ def open_cds(parent, accent, on_open_detail=None, restore_library=False):
     page.after_idle(update_toggle)
     from library_return import install
     search_adapter = next(w for w in bar.winfo_children() if isinstance(w,tk.Entry))
+    from search_shortcuts import bind_enter
+    bind_enter(search_adapter,refresh)
     filter_adapter={'status':ownership,'sort':sort,'extra':{}}
     on_open_detail=install(page,'cds',on_open_detail,grid,table,search_adapter,mode,switch,
                            lambda search='':refresh(),filter_adapter,restore=restore_library)

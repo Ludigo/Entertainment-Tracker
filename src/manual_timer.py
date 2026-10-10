@@ -68,7 +68,10 @@ class ManualTimer:
                     connection.execute('INSERT INTO cd_sessions (cd_id,started_at,ended_at,duration_seconds,source,note) VALUES (?,?,?,?,?,?)',
                                        (item_id,self.started_at,stamp(),seconds,'manual',note))
                 elif kind == 'books':
-                    connection.execute('UPDATE books SET reading_time = COALESCE(reading_time,0) + ? WHERE id = ?', (seconds / 3600, item_id))
+                    changed=connection.execute('UPDATE books SET reading_time = COALESCE(reading_time,0) + ? WHERE id = ?', (seconds / 3600, item_id))
+                    if changed.rowcount != 1:raise ValueError('This book no longer exists.')
+                    connection.execute('INSERT INTO book_sessions (book_id,started_at,ended_at,duration_seconds,source,note) VALUES (?,?,?,?,?,?)',
+                                       (item_id,self.started_at,stamp(),seconds,'manual',note))
         self.kind, self.item_id, self.title = None, None, ''
         self.seconds, self.since, self.started_at = 0, None, None
         return seconds

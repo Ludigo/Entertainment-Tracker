@@ -96,6 +96,8 @@ def open_bulk_edit(parent, kind, on_done=None):
         selected.update(int(item) for item in tree.selection())
         count.configure(text=f'{len(selected)} selected · {len(visible)} visible')
     tree.bind('<<TreeviewSelect>>', selection_changed)
+    from search_shortcuts import bind_enter
+    bind_enter(search_box,refresh)
     search.trace_add('write', refresh)
     controls = tk.Frame(body, bg=BG)
     controls.pack(fill='x', padx=22, pady=8, before=area)
@@ -159,3 +161,4 @@ def open_bulk_edit(parent, kind, on_done=None):
     refresh()
     dialog.bind('<Escape>', lambda event: dialog.destroy())
     search_box.focus_set()
+

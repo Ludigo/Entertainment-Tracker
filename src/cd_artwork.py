@@ -49,3 +49,13 @@ def download_batch(options, cancel, emit):
         for future in pending:future.cancel()
         pool.shutdown(wait=False,cancel_futures=True)
         if not cancel.is_set():emit('done',None)
+
+
+def collect_images(options, cancel=None):
+    """Download a batch on a worker and return successes plus a failure count."""
+    cancel=cancel or threading.Event();images=[];failures=[]
+    def emit(kind,value):
+        if kind=='image':images.append(value)
+        elif kind=='failure':failures.append(value)
+    download_batch(list(dict((url,(label,url)) for label,url in options).values()),cancel,emit)
+    return images,len(failures)

@@ -406,10 +406,7 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None, restore_libra
     install_search_shortcuts(movies_window,search_entry,lambda:load_movies(search_entry.get()))
 
     # Enter to search
-    search_entry.bind(
-        "<Return>",
-        lambda event: search_movies()
-    )
+
 
 
     # Load movies when window opens

@@ -186,7 +186,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
     tk.Label(search_row,text='Filename search:',bg=BG,fg=TEXT).pack(side='left',padx=(0,8))
     filename_search=tk.StringVar(value='')
     favourites_only=tk.BooleanVar(value=False)
-    ttk.Entry(search_row,textvariable=filename_search).pack(side='left',fill='x',expand=True)
+    filename_entry=ttk.Entry(search_row,textvariable=filename_search);filename_entry.pack(side='left',fill='x',expand=True)
     tk.Checkbutton(search_row,text='Favourites only',variable=favourites_only,bg=BG,fg=TEXT,
                    selectcolor=PANEL,activebackground=BG).pack(side='left',padx=8)
     tk.Button(search_row,text='Reset filters',command=lambda:reset_filters(),bg=PANEL_ALT,
@@ -323,6 +323,8 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         minimum_width.set('All sizes')
         role_filter.set('All roles')
         canvas.yview_moveto(0)
+    from search_shortcuts import bind_enter
+    bind_enter(filename_entry,display)
     filename_search.trace_add('write',lambda *_:display())
     favourites_only.trace_add('write',lambda *_:display())
     def filter_changed(key,variable):
@@ -392,16 +394,8 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         online['index']+=len(batch);online['busy']=True;more.configure(state='disabled')
         online_info.set(f"Loading artwork {online['index']-len(batch)+1}–{online['index']} of {len(candidates)}…")
         def work():
-            if kind=='cds':
-                from cd_artwork import download_batch
-                download_batch(batch,online['cancel'],lambda event,value:online_queue.put((event,value)) if event in ('image','done') else None)
-                return
-            for label,url in batch:
-                if online['cancel'].is_set():return
-                try:
-                    raw,w,h,ext=fetch(url);online_queue.put(('image',(raw,w,h,ext,label,url)))
-                except Exception:pass
-            online_queue.put(('done',None))
+            from cd_artwork import download_batch
+            download_batch(batch,online['cancel'],lambda event,value:online_queue.put((event,value)) if event in ('image','done') else None)
         threading.Thread(target=work,daemon=True).start()
     def poll_online():
         online['job']=None

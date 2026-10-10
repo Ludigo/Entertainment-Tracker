@@ -31,6 +31,13 @@ def where_clause(kind, search, state):
   val=var.get()
   if field in cols and val!='All':
    query+=' AND '+field+' = ?';params.append(val)
+ ownership=state.get('ownership')
+ if ownership and {'owned','owned_physical','owned_digital'}.issubset(cols):
+  rules={'Physical':'owned_physical=1','Digital':'owned_digital=1',
+         'Both':'owned_physical=1 AND owned_digital=1',
+         'Owned, format unspecified':'owned=1 AND owned_physical=0 AND owned_digital=0',
+         'Not marked owned':'owned=0 AND owned_physical=0 AND owned_digital=0'}
+  if ownership.get() in rules:query+=' AND ('+rules[ownership.get()]+')'
  status=state['status'].get()
  rules={'games':{'Backlog':'backlog = 1','Completed':'completed = 1','Started':'started = 1','Not started':'started = 0','Not completed':'completed = 0'},
  'movies':{'Watched':'watch_count > 0','Unwatched':'watch_count = 0'},
@@ -90,7 +97,9 @@ def build_filters(parent, kind, refresh):
     advanced.grid_columnconfigure(1, weight=1, uniform='advanced')
     advanced.grid_columnconfigure(2, weight=1, uniform='advanced')
     # Use rows of three; no horizontal overflow as additional filters are added.
-    index = 0
+    state['ownership']=combo(advanced,'Ownership',('All','Physical','Digital','Both','Owned, format unspecified','Not marked owned'),kind+'_filter_ownership',0)
+    state['extra']['_ownership']=state['ownership']
+    index = 1
     for label, field in FIELDS[kind]:
         if field not in available:
             continue
@@ -136,7 +145,7 @@ def build_filters(parent, kind, refresh):
         set_setting(kind+'_filter_sort', state['sort'].get())
         for field, var in state['extra'].items():
             var.set('All')
-            set_setting(kind+'_filter_'+field, 'All')
+            set_setting(kind+'_filter_ownership' if field=='_ownership' else kind+'_filter_'+field, 'All')
         refresh()
     tk.Button(actions, text='Clear filters', command=reset, bg=PANEL_ALT, fg=TEXT,
               activebackground=BORDER, activeforeground=TEXT, relief='flat',
@@ -150,3 +159,4 @@ def build_filters(parent, kind, refresh):
     count.pack(anchor='w')
     state['count'] = count
     return state
+

@@ -1,5 +1,9 @@
 """Games-style album metadata and Add workflow with a staged track/artwork draft."""
 import copy
+try:
+    from PIL import ImageTk
+except ImportError:
+    ImageTk=None
 import queue
 import threading
 from pathlib import Path
@@ -30,7 +34,7 @@ class AlbumEditor:
         self.search_session={'query':'','provider':get_setting('cd_metadata_provider','MusicBrainz'),'rows':[],'selected':None,'detail':None}
         self.closed=False;self.jobs=set();self.cancel=threading.Event()
         self.win=tk.Toplevel(parent);install(self.win);self.win.title(('Album Metadata — '+self.row['name']) if item_id else 'Add Album')
-        self.win.geometry('700x760');self.win.minsize(540,540);self.win.configure(bg=PANEL)
+        self.win.geometry('700x760');self.win.minsize(600,680);self.win.configure(bg=PANEL)
         self.win.transient(parent.winfo_toplevel());self.previous=self.win.grab_current();self.win.grab_set();self.win._cd_editor=self
         header=tk.Frame(self.win,bg=PANEL,padx=20,pady=16);header.pack(fill='x')
         tk.Label(header,text='ALBUM METADATA' if item_id else 'ADD ALBUM',bg=PANEL,fg=TEXT,font=('Arial',15,'bold')).pack(anchor='w')
@@ -40,7 +44,7 @@ class AlbumEditor:
         self.status=tk.StringVar(value='');tk.Label(footer,textvariable=self.status,bg=PANEL,fg=MUTED,wraplength=620,justify='left').pack(fill='x',pady=(0,8))
         tk.Button(footer,text='Save Metadata' if item_id else 'Save Album',command=self.save,bg=accent,fg='white',relief='flat',padx=20,pady=9).pack(side='right')
         tk.Button(footer,text='Cancel',command=self.close,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=18,pady=9).pack(side='right',padx=8)
-        tabs=ttk.Notebook(self.win);tabs.pack(fill='both',expand=True,padx=20)
+        tabs=ttk.Notebook(self.win);self.tabs=tabs;tabs.pack(fill='both',expand=True,padx=20)
         meta=tk.Frame(tabs,bg=PANEL);tabs.add(meta,text='Metadata')
         canvas=tk.Canvas(meta,bg=PANEL,highlightthickness=0);scroll=ttk.Scrollbar(meta,command=canvas.yview)
         scroll.pack(side='right',fill='y');canvas.pack(side='left',fill='both',expand=True);canvas.configure(yscrollcommand=scroll.set)
@@ -79,14 +83,36 @@ class AlbumEditor:
         trackscroll=ttk.Scrollbar(trackbody,command=self.table.yview);trackscroll.pack(side='right',fill='y');self.table.configure(yscrollcommand=trackscroll.set);self.table.pack(fill='both',expand=True)
         self.table.bind('<Double-1>',lambda e:self.edit_track() if self.table.identify_region(e.x,e.y)=='cell' else None)
         self.render_tracks()
-        arttab=tk.Frame(tabs,bg=PANEL);tabs.add(arttab,text='Artwork')
+        arttab=tk.Frame(tabs,bg=PANEL);self.arttab=arttab;tabs.add(arttab,text='Artwork')
         self.art_summary=tk.StringVar(value='');tk.Label(arttab,textvariable=self.art_summary,bg=PANEL,fg=TEXT,justify='left',wraplength=600).pack(anchor='w',padx=16,pady=16)
-        for text,command in [('Review Available Artwork…',self.review_art),('Choose Local Cover…',lambda:self.local('cover')),
-                             ('Choose Local Background…',lambda:self.local('background')),('Preview Cover',lambda:self.preview('cover')),
-                             ('Preview Background',lambda:self.preview('background')),('Clear Cover',lambda:self.clear('cover')),
-                             ('Clear Background',lambda:self.clear('background'))]:
-            tk.Button(arttab,text=text,command=command,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=12,pady=8).pack(fill='x',padx=16,pady=3)
-        tk.Label(arttab,text='Original images are saved locally only when you save this album. Extra selected images join Artwork Collection.',bg=PANEL,fg=MUTED,wraplength=600,justify='left').pack(anchor='w',padx=16,pady=12)
+        art_controls=tk.Frame(arttab,bg=PANEL);art_controls.pack(fill='x',padx=16)
+        for index,(text,command) in enumerate([('Local Cover',lambda:self.local('cover')),
+                ('Local Background',lambda:self.local('background')),('Preview Selected',self.preview_selected)]):
+            tk.Button(art_controls,text=text,command=command,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=6,pady=6).grid(row=0,column=index,sticky='ew',padx=3,pady=3)
+            art_controls.columnconfigure(index,weight=1)
+        actions=tk.Menubutton(art_controls,text='More ▾',bg=PANEL_ALT,fg=TEXT,relief='flat',padx=6,pady=6)
+        actions.grid(row=0,column=3,sticky='ew',padx=3,pady=3)
+        menu=tk.Menu(actions,tearoff=False);actions.configure(menu=menu)
+        for text,command in [('Preview Cover',lambda:self.preview('cover')),('Preview Background',lambda:self.preview('background')),
+                             ('Clear Cover',lambda:self.clear('cover')),('Clear Background',lambda:self.clear('background'))]:
+            menu.add_command(label=text,command=command)
+        tk.Label(arttab,text='Select an image below. Choose its role, then Save Album to keep it.',bg=PANEL,fg=MUTED,wraplength=500).pack(anchor='w',padx=16,pady=6)
+        artbody=tk.Frame(arttab,bg=PANEL);artbody.pack(fill='both',expand=True,padx=16,pady=8)
+        art_style=ttk.Style(self.win)
+        art_style.configure('CDArtwork.Treeview',rowheight=112)
+        self.art_photos={}
+        self.art_list=ttk.Treeview(artbody,columns=('Image','Size'),show='tree headings',height=2,selectmode='browse',style='CDArtwork.Treeview')
+        self.art_list.heading('#0',text='Preview');self.art_list.column('#0',width=140,minwidth=140,stretch=False)
+        for key in ('Image','Size'):self.art_list.heading(key,text=key)
+        self.art_list.column('Image',width=240);self.art_list.column('Size',width=100)
+        artscroll=ttk.Scrollbar(artbody,command=self.art_list.yview);artscroll.pack(side='right',fill='y')
+        self.art_list.configure(yscrollcommand=artscroll.set);self.art_list.pack(fill='both',expand=True)
+        self.art_list.bind('<Double-1>',lambda event:self.preview_selected() if self.art_list.identify_region(event.x,event.y) in ('tree','cell') else None)
+        roles_row=tk.Frame(arttab,bg=PANEL);roles_row.pack(side='bottom',fill='x',padx=16,pady=6,before=artbody)
+        for column,(label,role) in enumerate([('Set Cover','cover'),('Set Background','background'),('Toggle Extra','extra')]):
+            roles_row.columnconfigure(column,weight=1)
+            tk.Button(roles_row,text=label,command=lambda r=role:self.assign_art(r),bg=PANEL_ALT,fg=TEXT,pady=6).grid(row=0,column=column,sticky='ew',padx=3)
+        self.finder=None
         self._load_saved_art();self.summary();self.initial=self.signature()
         self.win.protocol('WM_DELETE_WINDOW',self.close);self.win.bind('<Escape>',self.close)
         self.widgets['name'].focus_set()
@@ -117,6 +143,23 @@ class AlbumEditor:
         for key in ('cover','background'):self.stage[key]=by_path.get(self.row.get(key+'_path'))
 
     def summary(self):
+        if hasattr(self,'art_list'):
+            selection=tuple(self.art_list.selection());position=self.art_list.yview()[0]
+            for ident in self.art_list.get_children():self.art_list.delete(ident)
+            for index,image in enumerate(self.stage['available']):
+                from add_game_metadata import image_digest,preview_picture
+                digest=image_digest(image)
+                if ImageTk is not None and digest not in self.art_photos:
+                    self.art_photos[digest]=ImageTk.PhotoImage(preview_picture(image['raw'],'Checkerboard',(124,100)),master=self.win)
+                roles=[]
+                for key in ('cover','background'):
+                    if self.stage[key] and image_digest(self.stage[key])==digest:roles.append(key.title())
+                if any(image_digest(extra)==digest for extra in self.stage['extras']):roles.append('Extra')
+                label=image['label']+(' · '+', '.join(roles) if roles else '')
+                self.art_list.insert('','end',iid=str(index),image=self.art_photos.get(digest,''),values=(label,f"{image['w']} × {image['h']}"))
+            for ident in selection:
+                if self.art_list.exists(ident):self.art_list.selection_add(ident)
+            self.art_list.yview_moveto(position)
         def role(key):
             image=self.stage[key]
             return image['label'] if image else 'Saved image unavailable (retained)' if key not in self.stage['changed'] and self.row.get(key+'_path') else 'None'
@@ -182,18 +225,30 @@ class AlbumEditor:
         self.stage[role]=None;self.stage['changed'].add(role);self.summary()
 
     def review_art(self):
-        from add_game_metadata import choose_artwork,image_digest
-        if not self.stage['available']:
-            self.status.set('Find a release and load its artwork, or choose an image from your PC.');return
-        old={key:image_digest(self.stage[key]) if self.stage[key] else None for key in ('cover','background')}
-        def chosen(cover,extras,roles):
-            for key,image in [('cover',cover),('background',roles.get('background_path'))]:
-                digest=image_digest(image) if image else None
-                if digest!=old[key]:self.stage['changed'].add(key)
-                self.stage[key]=image
-            self.stage['extras']=extras;self.summary()
-        choose_artwork(self.win,self.accent,self.stage['available'],self.stage['cover'],self.stage['extras'],chosen,
-                       roles={'background_path':self.stage['background']},media_label='Album',role_keys=('background_path',))
+        self.tabs.select(self.arttab);self.summary()
+        self.status.set('Select an image, then assign Cover, Background or Extra. Save Album keeps your choices.')
+
+    def preview_selected(self):
+        selection=self.art_list.selection()
+        if not selection:self.status.set('Select an image to preview.');return
+        from add_game_metadata import preview_cover
+        preview_cover(self.win,self.stage['available'][int(selection[0])],'Album artwork')
+
+    def assign_art(self,role):
+        selected=self.art_list.selection()
+        if not selected:self.status.set('Select an available image first.');return
+        image=self.stage['available'][int(selected[0])]
+        if role=='extra':
+            from add_game_metadata import image_digest
+            digest=image_digest(image)
+            if any(image_digest(x)==digest for x in self.stage['extras']):
+                self.stage['extras']=[x for x in self.stage['extras'] if image_digest(x)!=digest]
+            else:self.stage['extras'].append(image)
+        else:
+            from add_game_metadata import image_digest
+            if self.stage[role] is None or image_digest(self.stage[role])!=image_digest(image):self.stage['changed'].add(role)
+            self.stage[role]=image
+        self.summary();self.status.set('Artwork choice applied to this draft. Save Album to keep it.')
 
     def apply_metadata(self,data,keys,with_tracks):
         for key in keys:
@@ -204,10 +259,13 @@ class AlbumEditor:
         self.provider={'provider_source':data['source'],'provider_id':str(data['id']),'provider_url':data.get('url')}
 
     def find(self):
-        return ReleaseFinder(self).win
+        if self.finder is None or self.finder.closed:self.finder=ReleaseFinder(self)
+        self.tabs.select(self.finder.win)
+        return self.finder.win
 
     def finish(self):
         self.closed=True;self.cancel.set()
+        if self.finder is not None:self.finder.close()
         for job in self.jobs:
             try:self.win.after_cancel(job)
             except tk.TclError:pass
@@ -236,6 +294,7 @@ class AlbumEditor:
         except InvalidField as exc:
             self.status.set(str(exc));self.widgets[exc.key].focus_set();return
         except Exception as exc:self.status.set('Could not save: '+str(exc));return
+        messagebox.showinfo('Album saved',f'{values["name"]} saved successfully. Metadata, tracks and selected artwork are stored locally.',parent=self.win)
         self.finish();self.on_saved(new_id)
 
 
@@ -243,21 +302,22 @@ class ReleaseFinder:
     def __init__(self,editor):
         self.editor=editor;self.session=editor.search_session;self.closed=False;self.generation=0;self.queue=queue.Queue();self.job=None
         self.cancel=threading.Event();self.art_busy=False;self.options=[];self.art_index=0;self.art_failures=0
-        self.win=tk.Toplevel(editor.win);install(self.win);self.win.title('Album Metadata & Artwork Finder');self.win.geometry('920x740');self.win.minsize(700,560);self.win.configure(bg=BG)
-        self.win.transient(editor.win);self.win.grab_set();self.win._cd_finder=self
+        self.win=tk.Frame(editor.tabs,bg=BG);editor.tabs.add(self.win,text='Find Release');self.win._cd_finder=self
         top=tk.Frame(self.win,bg=BG);top.pack(fill='x',padx=18,pady=14)
         raw=editor.raw();self.query=tk.StringVar(value=self.session.get('query') or (raw['name']+' '+(raw['artist'] or '')).strip())
         self.provider=tk.StringVar(value=self.session.get('provider') if self.session.get('provider') in ('MusicBrainz','Discogs') else 'MusicBrainz')
         ttk.Combobox(top,textvariable=self.provider,values=['MusicBrainz','Discogs'],state='readonly',width=14).pack(side='left',padx=(0,8))
-        tk.Entry(top,textvariable=self.query,bg=PANEL,fg=TEXT,insertbackground=TEXT).pack(side='left',fill='x',expand=True)
+        query_entry=tk.Entry(top,textvariable=self.query,bg=PANEL,fg=TEXT,insertbackground=TEXT);query_entry.pack(side='left',fill='x',expand=True)
+        from search_shortcuts import bind_enter
+        bind_enter(query_entry,self.search)
         tk.Button(top,text='Search',command=self.search,bg=editor.accent,fg='white',padx=12).pack(side='left',padx=8)
         auth=tk.Frame(self.win,bg=BG);auth.pack(fill='x',padx=18,pady=(0,10))
         tk.Label(auth,text='Discogs token:',bg=BG,fg=MUTED).pack(side='left')
         self.token=tk.StringVar(value=get_setting('discogs_token',''))
         tk.Entry(auth,textvariable=self.token,show='•',bg=PANEL,fg=TEXT,width=38).pack(side='left',padx=8)
-        tk.Button(auth,text='Save Token Locally',command=lambda:self.save_token()).pack(side='left')
-        tk.Label(auth,text='MusicBrainz needs no token.',bg=BG,fg=MUTED).pack(side='left',padx=10)
-        self.results=tk.Listbox(self.win,bg=PANEL,fg=TEXT,height=7,exportselection=False)
+        tk.Button(auth,text='Save Token Locally',command=lambda:self.save_token()).pack(side='bottom',anchor='w',pady=3)
+        tk.Label(auth,text='MusicBrainz needs no token.',bg=BG,fg=MUTED).pack(side='bottom',anchor='w',pady=3)
+        self.results=tk.Listbox(self.win,bg=PANEL,fg=TEXT,height=4,exportselection=False)
         self.results.pack(fill='x',padx=18);self.results.bind('<<ListboxSelect>>',self.selected)
         self.status=tk.StringVar(value='Search by album/artist or barcode. Select the edition you own.')
         tk.Label(self.win,textvariable=self.status,bg=BG,fg=MUTED,wraplength=850,justify='left').pack(fill='x',padx=18,pady=10)
@@ -266,17 +326,17 @@ class ReleaseFinder:
         self.review=tk.Frame(self.canvas,bg=BG);ident=self.canvas.create_window((0,0),window=self.review,anchor='nw')
         self.review.bind('<Configure>',lambda e:self.canvas.configure(scrollregion=self.canvas.bbox('all')));self.canvas.bind('<Configure>',lambda e:self.canvas.itemconfigure(ident,width=e.width))
         self.checks={};self.track_choice=tk.IntVar(value=0);self.snapshot={}
-        buttons=tk.Frame(self.win,bg=BG);buttons.pack(fill='x',padx=18,pady=14)
-        self.load_btn=tk.Button(buttons,text='Load Artwork',command=self.load_art,bg=PANEL_ALT,fg=TEXT);self.load_btn.pack(side='left')
-        tk.Button(buttons,text='View Source Release',command=self.view_source,bg=PANEL_ALT,fg=TEXT).pack(side='left',padx=8)
-        tk.Button(buttons,text='Review Loaded Artwork…',command=editor.review_art,bg=PANEL_ALT,fg=TEXT).pack(side='left',padx=8)
-        tk.Button(buttons,text='Apply Checked Fields',command=self.apply,bg=editor.accent,fg='white').pack(side='right')
-        tk.Button(buttons,text='Close',command=self.close,bg=PANEL_ALT,fg=TEXT).pack(side='right',padx=8)
+        buttons=tk.Frame(self.win,bg=BG);buttons.pack(side='bottom',fill='x',padx=18,pady=6,before=reviewbody)
+        self.load_btn=tk.Button(buttons,text='Load Artwork',command=self.load_art,bg=PANEL_ALT,fg=TEXT);self.load_btn.grid(row=0,column=0,sticky='ew',padx=3,pady=3)
+        tk.Button(buttons,text='View Source Release',command=self.view_source,bg=PANEL_ALT,fg=TEXT).grid(row=0,column=1,sticky='ew',padx=3,pady=3)
+        tk.Button(buttons,text='Review Loaded Artwork…',command=editor.review_art,bg=PANEL_ALT,fg=TEXT).grid(row=1,column=0,sticky='ew',padx=3,pady=3)
+        tk.Button(buttons,text='Apply Checked Fields',command=self.apply,bg=editor.accent,fg='white').grid(row=1,column=1,sticky='ew',padx=3,pady=3)
+        tk.Button(buttons,text='Back to Metadata',command=lambda:editor.tabs.select(0),bg=PANEL_ALT,fg=TEXT).grid(row=2,column=0,columnspan=2,sticky='ew',padx=3,pady=3)
+        buttons.columnconfigure(0,weight=1);buttons.columnconfigure(1,weight=1)
         if editor.provider.get('provider_id'):
             tk.Button(top,text='Saved Release',command=self.saved_release).pack(side='right')
         self.detail=self.session.get('detail');self.render_results()
         if self.detail:self.render_review()
-        self.win.protocol('WM_DELETE_WINDOW',self.close);self.win.bind('<Escape>',self.close)
         self.win.bind('<Destroy>',self.destroyed,add='+');self.poll()
 
     def view_source(self):
@@ -336,7 +396,7 @@ class ReleaseFinder:
             # Disc count is real entered data, so keep it unless the user chooses replacement.
             self.checks[key]=tk.IntVar(value=int(empty))
             text=key.replace('_',' ').title()+': '+str(old or 'Unrecorded')+' → '+str(value)
-            tk.Checkbutton(self.review,text=text,variable=self.checks[key],bg=BG,fg=TEXT,selectcolor=PANEL,anchor='w',wraplength=800,justify='left').pack(fill='x',pady=3)
+            tk.Checkbutton(self.review,text=text,variable=self.checks[key],bg=BG,fg=TEXT,selectcolor=PANEL,anchor='w',wraplength=460,justify='left').pack(fill='x',pady=3)
         self.track_choice.set(not bool(self.editor.tracks))
         tk.Checkbutton(self.review,text=f'Replace tracklist ({len(self.detail["tracks"])} tracks; unknown durations stay blank)',variable=self.track_choice,bg=BG,fg=TEXT,selectcolor=PANEL).pack(anchor='w',pady=8)
         # Empty new-album disc count can follow the chosen imported tracklist.
@@ -352,7 +412,8 @@ class ReleaseFinder:
         changed=[key for key in keys if current.get(key)!=self.snapshot.get(key)]
         if changed and not messagebox.askyesno('Entered Metadata Changed','Replace values changed since this review opened?',parent=self.win):return
         self.editor.apply_metadata(self.detail,keys,bool(self.track_choice.get()))
-        self.status.set('Checked fields applied to the draft. Save Album/Metadata commits your changes.')
+        self.status.set('Metadata and selected tracks applied to the draft. Choose artwork or Save Album to finish.')
+        self.editor.status.set('Release applied to draft. Review tabs, then Save Album to finish.')
 
     def load_art(self):
         if not self.detail or self.art_busy:return
@@ -418,5 +479,5 @@ class ReleaseFinder:
         self.closed=True;self.generation+=1;self.cancel.set();self.session['detail']=self.detail
         if self.job:self.win.after_cancel(self.job)
         self.win.destroy()
-        if self.editor.win.winfo_exists():self.editor.win.grab_set()
+        if self.editor.win.winfo_exists() and not self.editor.closed:self.editor.tabs.select(0)
         return 'break'

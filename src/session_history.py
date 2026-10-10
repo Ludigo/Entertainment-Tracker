@@ -11,6 +11,21 @@ def duration_text(seconds):
     return f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
 
 
+def all_activity_sessions():
+    rows=[]
+    for table,items,foreign,label in (('game_sessions','games','game_id','Game'),
+                                     ('cd_sessions','cds','cd_id','Album'),
+                                     ('book_sessions','books','book_id','Book')):
+        rows.extend(connection_row for connection_row in cursor.execute(
+            f"SELECT s.started_at,s.ended_at,s.duration_seconds,s.source,? || ' · ' || i.name,s.note FROM {table} s JOIN {items} i ON i.id=s.{foreign}", (label,)).fetchall())
+    def key(row):
+        try:
+            dt=datetime.fromisoformat(row[0])
+            return (dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt).timestamp()
+        except (ValueError,TypeError):return float('-inf')
+    return sorted(rows,key=key,reverse=True)
+
+
 def show_session_history(parent, game_id, game_name, accent, on_back):
     for child in parent.winfo_children():
         child.destroy()
@@ -28,14 +43,12 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
              bg=BG, fg=TEXT, font=("Arial", 27, "bold")).pack(anchor="w", padx=36)
 
     if game_id is None:
-        cursor.execute("SELECT s.started_at, s.ended_at, s.duration_seconds, s.source, "
-                       "g.name, s.note FROM game_sessions s JOIN games g ON g.id = s.game_id "
-                       "ORDER BY s.started_at DESC, s.id DESC")
+        sessions=all_activity_sessions()
     else:
         cursor.execute("SELECT s.started_at, s.ended_at, s.duration_seconds, s.source, "
                        "g.name, s.note FROM game_sessions s JOIN games g ON g.id = s.game_id "
                        "WHERE s.game_id = ? ORDER BY s.started_at DESC, s.id DESC", (game_id,))
-    sessions = cursor.fetchall()
+        sessions=cursor.fetchall()
     count = len(sessions)
     total = sum(max(0, int(r[2] or 0)) for r in sessions)
     longest = max((int(r[2] or 0) for r in sessions), default=0)
@@ -80,6 +93,9 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
             continue
         parsed.append((local, int(seconds or 0), source, session_game, note))
         # Split sessions across local midnight, using recorded elapsed seconds.
+        if source == 'album play':
+            by_day[local.date()] = by_day.get(local.date(),0) + max(0,int(seconds or 0))
+            continue
         end = local + timedelta(seconds=max(0, int(seconds or 0)))
         point = local
         while point.date() < end.date():
@@ -95,7 +111,7 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
     grid_holder = tk.Frame(cal_panel, bg=PANEL)
     grid_holder.pack(fill="x", pady=(14, 8))
     selected_day = tk.StringVar(value="")
-    detail_label = tk.Label(cal_panel, text="Select a highlighted day to see playtime.",
+    detail_label = tk.Label(cal_panel, text="Select a highlighted day to see recorded activity.",
                             bg=PANEL, fg=MUTED, font=("Arial", 9), wraplength=330)
     detail_label.pack(anchor="w", pady=(8, 0))
 
@@ -141,7 +157,7 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
                     button.configure(command=lambda d=date, sec=seconds:
                                      detail_label.configure(text=f"{d:%A %d %B %Y}:  {duration_text(sec)}"))
         if not sessions:
-            detail_label.configure(text="No recorded sessions yet. Finish a tracked game to see activity.")
+            detail_label.configure(text="No recorded sessions yet. Save a game, listening or reading session to see activity.")
 
     render_month()
     tk.Label(history_panel, text="ALL COMPLETED SESSIONS", bg=PANEL, fg=TEXT,
@@ -167,7 +183,7 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
         info = tk.Frame(row, bg=PANEL_ALT)
         info.pack(side="left", fill="x", expand=True)
         if game_id is None:
-            tk.Label(info, text=session_game, bg=PANEL_ALT, fg=TEXT,
+            tk.Label(info, text=session_game + (" · " + str(source) if source else ""), bg=PANEL_ALT, fg=TEXT,
                      font=("Arial", 10, "bold"), anchor="w").pack(anchor="w")
         tk.Label(info, text=local.strftime("%d %b %Y  •  %H:%M"), bg=PANEL_ALT,
                  fg=MUTED if game_id is None else TEXT,
@@ -183,3 +199,4 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
 def show_all_session_history(parent, accent):
     """All-game calendar and session totals in the main content area."""
     show_session_history(parent, None, "All Games", accent, None)
+

@@ -156,6 +156,8 @@ def create_game(values, metadata=None, cover=None, extras=(), lock_cover=False, 
                 if value is not None and str(value).strip():
                     if field=='release_year':value=int(value)
                     connection.execute(f'UPDATE games SET {field}=? WHERE id=?',(value,game_id))
+            for field in ('owned','owned_physical','owned_digital'):
+                connection.execute(f'UPDATE games SET {field}=? WHERE id=?',(int(bool(metadata.get(field))),game_id))
             for index,image in enumerate(images):
                 folder=PROJECT_ROOT/'assets'/'artwork'/'games';folder.mkdir(parents=True,exist_ok=True)
                 role='Cover' if cover and index==0 else 'Artwork'
@@ -245,7 +247,9 @@ def update_game(game_id,values,metadata,cover,extras,roles,expected_art,locks):
             for image in extras:store(image)
             connection.execute('UPDATE games SET name=?,platform=?,playtime=?,price_paid=?,completed=?,backlog=?,started=?,description=? WHERE id=?',values+(game_id,))
             for key,value in metadata.items():
-                if key in METADATA_FIELDS:
+                if key in ('owned','owned_physical','owned_digital'):
+                    connection.execute(f'UPDATE games SET {key}=? WHERE id=?',(int(bool(value)),game_id))
+                elif key in METADATA_FIELDS:
                     value=None if value is None or not str(value).strip() else int(value) if key=='release_year' else value
                     connection.execute(f'UPDATE games SET {key}=? WHERE id=?',(value,game_id))
             if 'cover_path' in stored:connection.execute('UPDATE games SET cover_path=? WHERE id=?',(stored['cover_path'],game_id))
@@ -480,9 +484,9 @@ def open_search(parent,accent,current_values,on_apply):
     state={'closed':False,'generation':0,'item':None,'cover':None,'checks':{},'photo':None,'busy':False,
            'available':list(current_values().get('_available',())),'extras':list(current_values().get('_extras',())),
            'roles':dict(current_values().get('_roles',{}))}
-    messages=queue.Queue()
+    messages=queue.Queue();art_cancel=threading.Event()
     def close(event=None):
-        state['closed']=True;state['generation']+=1
+        art_cancel.set();state['closed']=True;state['generation']+=1
         if state.get('poll_id'):
             try:win.after_cancel(state['poll_id'])
             except tk.TclError:pass
@@ -620,21 +624,28 @@ def open_search(parent,accent,current_values,on_apply):
         def work():
             item=enrich('games',original)
             item=dict(item,name=item.get('title',''),platform='PC')
-            available=[];seen=set();failed=0
-            if Image is not None:
-                for label,url in options('games',item):
-                    try:
-                        raw,w,h,ext=fetch(url);image=validated_cover(raw,label,url)
-                        digest=image_digest(image)
-                        if digest not in seen:available.append(image);seen.add(digest)
-                    except Exception:failed+=1
-            warning=f'{failed} artwork options unavailable; metadata can still be used.' if failed else ''
-            return item,available,warning
+            return item,[], 'Metadata ready. Use Load Artwork to download images separately.'
         def done(value,error):
             state['busy']=False
             if error:status.set('Could not load details. Manual entry remains available. '+error);return
             review(*value)
         background(work,done)
+    def load_artwork():
+        if state['busy'] or not state['item']:return
+        item=dict(state['item']);state['busy']=True;status.set('Loading artwork in parallel…')
+        def work():
+            from cd_artwork import collect_images
+            images,failed=collect_images(options('games',item),art_cancel)
+            return [validated_cover(raw,label,url) for raw,w,h,ext,label,url in images],failed
+        def done(value,error):
+            state['busy']=False
+            if error:status.set('Artwork unavailable: '+error);return
+            available,failed=value;state['available']=available
+            show_cover(available[0] if available else None,not bool(current_values().get('_cover')))
+            artwork_info.set(f'{len(available)} images available')
+            status.set(f'Artwork loaded · {failed} failed. Choose images, then Apply Selected to Form.')
+        background(work,done)
+    tk.Button(right,text='Load Artwork',command=load_artwork,bg=PANEL,fg=TEXT).pack(side='bottom',pady=5,before=cover_label)
     def apply():
         if state['busy']:status.set('Wait for the current search/details request to finish.');return
         item=state['item']
@@ -649,7 +660,9 @@ def open_search(parent,accent,current_values,on_apply):
         on_apply(updates,cover,list(state['extras']),lock_cover.get() if cover else None,dict(state['roles']),list(state['available']))
         status.set('Selection applied to '+form_name+'. You can review another result or close this window; Save Game completes the changes.')
     tk.Button(toolbar,text='Search Steam',command=search,bg=accent,fg='white',relief='flat',padx=12,pady=6).pack(side='left',padx=(10,0))
-    entry.bind('<Return>',lambda event:search());results.bind('<<TreeviewSelect>>',selected)
+    from search_shortcuts import bind_enter
+    bind_enter(entry,search)
+    results.bind('<<TreeviewSelect>>',selected)
     footer=tk.Frame(win,bg=BG);footer.pack(fill='x',padx=18,pady=14)
     tk.Button(footer,text='Apply Selected to Form',command=apply,bg=accent,fg='white',relief='flat',padx=14,pady=8).pack(side='right')
     tk.Button(footer,text='Close / Manual Entry',command=close,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=14,pady=8).pack(side='right',padx=8)

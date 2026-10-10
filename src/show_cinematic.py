@@ -1,4 +1,5 @@
 """Cinematic Shows facts, original watch totals and current-season progress."""
+from ownership import describe as describe_ownership
 from movie_cinematic import render as render_panels
 from utils import format_time
 
@@ -23,7 +24,7 @@ def show_sections(record):
                 ('Price Paid', 'Not recorded' if price is None else f'£{price:,.2f}'),
                 ('Completed', 'Yes' if record.get('completed') else 'No'),
                 ('In Progress', 'Yes' if record.get('in_progress') else 'No'),
-                ('Owned', 'Yes' if record.get('owned') else 'No')]
+                ('Ownership', describe_ownership(record))]
     members=record.get('_series_records') or []
     if members:
         from show_series import totals

@@ -1,3 +1,4 @@
+from ownership import describe as describe_ownership
 import shutil
 from pathlib import Path
 import tkinter as tk
@@ -266,6 +267,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
             ("Completed", "Yes" if record.get("completed") else "No"),
             ("In Backlog", "Yes" if record.get("backlog") else "No"),
             ("Started Playing", "Yes" if record.get("started") else "No"),
+            ("Ownership", describe_ownership(record)),
         ]
         fields = game_facts + activity_fields
     elif kind == "movies":
@@ -276,7 +278,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                   ("Tracked Watch Time", format_time((record.get("runtime") or 0) * (record.get("watch_count") or 0))),
                   ("Completed", "Yes" if record.get("completed") else "No"),
                   ("In Progress", "Yes" if record.get("in_progress") else "No"),
-                  ("Owned", "Yes" if record.get("owned") else "No"),
+                  ("Ownership", describe_ownership(record)),
                   ("Type", record.get("type") or "—"), ("Genre", record.get("genre") or "—"),
                   ("Release Year", record.get("release_year") or "—"),
                   ("Director", record.get("director") or "—"),
@@ -295,7 +297,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                   ("Completed", "Yes" if record.get("completed") else "No"),
                   ("In Progress", "Yes" if record.get("in_progress") else "No"),
                   ("Watch Count", record.get("watch_count") or 0),
-                  ("Owned", "Yes" if record.get("owned") else "No"),
+                  ("Ownership", describe_ownership(record)),
                   ("Type", record.get("type") or "—"), ("Genre", record.get("genre") or "—"),
                   ("Tracked Watch Time", format_time(runtime * (record.get("watch_count") or 0) + partial)),
                   ("Release Year", record.get("release_year") or "—"),
@@ -316,7 +318,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                   ("Completed", "Yes" if record.get("completed") else "No"),
                   ("In Progress", "Yes" if record.get("in_progress") else "No"),
                   ("Read Count", record.get("read_count") or 0),
-                  ("Owned", "Yes" if record.get("owned") else "No"),
+                  ("Ownership", describe_ownership(record)),
                   ("Type", record.get("type") or "—"), ("Genre", record.get("genre") or "—"),
                   ("Author", record.get("author") or "—"),
                   ("Series", record.get("series") or "—"),

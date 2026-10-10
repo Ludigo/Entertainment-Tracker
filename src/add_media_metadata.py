@@ -214,8 +214,9 @@ def open_search(parent,kind,accent,current,on_apply,stage,session):
     win=tk.Toplevel(parent);polish_dialog(win);win.title('TMDB Search & Review');win.geometry('900x740');win.minsize(700,540);win.configure(bg=PANEL);win.transient(parent)
     previous=win.grab_current();win.grab_set()
     state={'closed':False,'busy':False,'job':None,'item':None,'checks':{},'original':{},'cover':stage['cover'],'background':stage['background'],'extras':list(stage['extras']),'available':list(stage['available'])}
-    inbox=queue.Queue()
+    inbox=queue.Queue();art_cancel=threading.Event()
     def close(event=None):
+        art_cancel.set()
         state['closed']=True
         if state['job']:win.after_cancel(state['job'])
         win.destroy()
@@ -224,7 +225,7 @@ def open_search(parent,kind,accent,current,on_apply,stage,session):
     win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',close)
     toolbar=tk.Frame(win,bg=PANEL);toolbar.pack(fill='x',padx=14,pady=10)
     query=tk.StringVar(value=session['query'] or str(current()['name']));token=tk.StringVar(value=get_setting('tmdb_token',''))
-    tk.Entry(toolbar,textvariable=query,bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT).pack(side='left',fill='x',expand=True)
+    query_entry=tk.Entry(toolbar,textvariable=query,bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT);query_entry.pack(side='left',fill='x',expand=True)
     search_button=tk.Button(toolbar,text='Search TMDB',bg=accent,fg='white',relief='flat');search_button.pack(side='left',padx=8)
     tk.Label(win,text='TMDB API Read Access Token (saved locally)',bg=PANEL,fg=MUTED).pack(anchor='w',padx=14)
     tk.Entry(win,textvariable=token,show='•',bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT).pack(fill='x',padx=14,pady=(2,8))
@@ -247,7 +248,7 @@ def open_search(parent,kind,accent,current,on_apply,stage,session):
         review_canvas.yview_scroll(-3 if getattr(e,'num',0)==4 or getattr(e,'delta',0)>0 else 3,'units');return 'break'
     def show_review(data):
         for w in rows.winfo_children():w.destroy()
-        state['checks']={};state['item']=data['fields'];state['original']=current().copy();state['available']=data['images']
+        state['checks']={};state['item']=data['fields'];state['original']=current().copy();state['available']=data['images'];state['image_options']=data.get('image_options',[]);state['image_index']=0;art_button.configure(text='Load Artwork')
         for key,label,typ in FIELDS[kind]:
             value=data['fields'].get(key)
             if value is None or value=='':continue
@@ -272,7 +273,7 @@ def open_search(parent,kind,accent,current,on_apply,stage,session):
         except queue.Empty:pass
         state['job']=win.after(80,poll)
     def clear_review():
-        state['item']=None;state['checks']={}
+        state['item']=None;state['checks']={};state['image_options']=[];state['image_index']=0
         for w in rows.winfo_children():w.destroy()
     def display_results():
         results.delete(0,'end')
@@ -295,7 +296,7 @@ def open_search(parent,kind,accent,current,on_apply,stage,session):
                 season_box.configure(values=[f'{s["season_number"]} — {s.get("name") or "Season"}' for s in value['seasons']]);season_var.set('');clear_review();status.set(value['warning']);return
             show_review(value)
         if key in session['details']:done(copy.deepcopy(session['details'][key]),None)
-        else:background(lambda:load_tmdb(kind,item,t,season),done)
+        else:background(lambda:load_tmdb(kind,item,t,season,download_artwork=False),done)
     def selected(event=None):
         if state['busy']:return
         selection=results.curselection()
@@ -306,6 +307,23 @@ def open_search(parent,kind,accent,current,on_apply,stage,session):
         index=season_box.current()
         if index<0:return
         number=season_numbers[index];session['season']=number;clear_review();load(session['results'][session['selected']],number)
+    def load_artwork():
+        if state['busy'] or not state.get('image_options'):return
+        index=state.get('image_index',0);options=list(state['image_options'][index:index+20])
+        if not options:status.set('All artwork for this edition has been loaded.');return
+        state['image_index']=index+len(options)
+        def work():
+            from cd_artwork import collect_images
+            from add_game_metadata import validated_cover
+            images,failed=collect_images(options,art_cancel)
+            return [validated_cover(raw,'TMDB '+label,url) for raw,w,h,ext,label,url in images],failed
+        def done(value,error):
+            if error:status.set('Artwork unavailable: '+error);return
+            images,failed=value;state['available'].extend(images)
+            art_button.configure(text='Load More Artwork' if state['image_index']<len(state['image_options']) else 'Artwork Loaded')
+            status.set(f'{len(state["available"])} images loaded · {failed} failed. Choose artwork, then Apply.')
+        background(work,done)
+    art_button=tk.Button(right,text='Load Artwork',command=load_artwork,bg=PANEL_ALT,fg=TEXT);art_button.pack(anchor='w',before=review_canvas)
     def artwork():
         if state['busy']:return
         def chosen(cover,extras,roles):
@@ -323,6 +341,8 @@ def open_search(parent,kind,accent,current,on_apply,stage,session):
     tk.Button(footer,text='Choose artwork…',command=artwork,bg=PANEL_ALT,fg=TEXT,relief='flat',pady=8).pack(side='left')
     apply_button=tk.Button(footer,text='Apply selected',command=apply,bg=accent,fg='white',relief='flat',pady=8);apply_button.pack(side='right')
     tk.Button(footer,text='Close',command=close,bg=PANEL_ALT,fg=TEXT,relief='flat',pady=8).pack(side='right',padx=8)
+    from search_shortcuts import bind_enter
+    bind_enter(query_entry,search)
     search_button.configure(command=search);results.bind('<<ListboxSelect>>',selected);season_box.bind('<<ComboboxSelected>>',season_selected)
     display_results()
     if session['selected'] is not None and session['selected']<len(session['results']):

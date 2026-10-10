@@ -212,8 +212,8 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
             "Edit Book" if editing else "Add Book"
         )
 
-        form_window.geometry("450x550")
-        form_window.resizable(False, False)
+        form_window.geometry("500x650")
+        form_window.resizable(True, True)
 
         tk.Label(
             form_window,
@@ -310,6 +310,12 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
         completed_var = tk.IntVar()
         progress_var = tk.IntVar()
         owned_var = tk.IntVar()
+        formats={key:tk.IntVar(value=0) for key in ('owned_physical','owned_digital')}
+        for column,(key,label) in enumerate((('owned_physical','Physical'),('owned_digital','Digital'))):
+            tk.Checkbutton(checkbox_frame,text=label,variable=formats[key]).grid(row=1,column=column,padx=10,pady=5)
+        if editing:
+            row=connection.execute('SELECT owned_physical,owned_digital FROM books WHERE id=?',(existing_book[0],)).fetchone()
+            for key,value in zip(formats,row):formats[key].set(value)
 
         tk.Checkbutton(
             checkbox_frame,
@@ -333,7 +339,7 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
 
         tk.Checkbutton(
             checkbox_frame,
-            text="Owned",
+            text="Owned (format unspecified)",
             variable=owned_var
         ).grid(
             row=0,
@@ -546,6 +552,9 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
                 """, values)
 
 
+            saved_id=existing_book[0] if editing else cursor.lastrowid
+            connection.execute('UPDATE books SET owned_physical=?,owned_digital=? WHERE id=?',
+                               (formats['owned_physical'].get(),formats['owned_digital'].get(),saved_id))
             connection.commit()
 
             load_books()
@@ -569,7 +578,7 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
 
 
         form_window.watch([name_entry,page_count_entry,reading_time_entry,read_count_entry,type_entry,genre_entry],
-                          [completed_var,progress_var,owned_var])
+                          [completed_var,progress_var,owned_var,*formats.values()])
         validation=FormValidation(status_label,[(name_entry,required('a book name')),
                    (page_count_entry,whole_number('Page count')),(reading_time_entry,duration('Reading time')),
                    (read_count_entry,whole_number('Read count'))])
@@ -625,6 +634,9 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
 
         book_id = values[0]
         book_name = values[1]
+        timer=getattr(parent.winfo_toplevel(),'manual_timer',None)
+        if timer and timer.kind=='books' and str(timer.item_id)==str(book_id):
+            messagebox.showwarning('Reading Timer','Stop and save this book’s timer before deleting it.');return
 
 
         confirm = messagebox.askyesno(
@@ -637,6 +649,7 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
             return
 
 
+        connection.execute('DELETE FROM book_sessions WHERE book_id=?',(book_id,))
         cursor.execute("""
         DELETE FROM books
         WHERE id = ?
@@ -731,10 +744,7 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     install_search_shortcuts(books_window,search_entry,lambda:load_books(search_entry.get()))
 
     # Enter to search
-    search_entry.bind(
-        "<Return>",
-        lambda event: search_books()
-    )
+
 
 
     # Load books
@@ -757,3 +767,4 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
                 break
 
     return books_window
+

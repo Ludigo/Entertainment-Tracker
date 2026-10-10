@@ -284,7 +284,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
     toolbar=tk.Frame(win,bg=BG);toolbar.pack(fill='x',padx=20)
     query=tk.StringVar(value=title)
     token=tk.StringVar(value=get_setting('tmdb_token',''))
-    tk.Entry(toolbar,textvariable=query,bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT,relief='flat',font=('Arial',12)).pack(side='left',fill='x',expand=True,ipady=7)
+    query_entry=tk.Entry(toolbar,textvariable=query,bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT,relief='flat',font=('Arial',12));query_entry.pack(side='left',fill='x',expand=True,ipady=7)
     status=tk.StringVar(value=('Search Steam for game details, then review fields before importing.' if kind=='games' else 'Select a source, search, then review each field before importing.'))
     token_storage_error={'value':False}
     def save_token(*_):
@@ -420,6 +420,8 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
             show_fields(items[index])
             status.set(f'{count} field(s) imported and saved locally. Continue searching or close when finished.')
         else:status.set('No supported fields could be imported.')
+    from search_shortcuts import bind_enter
+    bind_enter(query_entry,do_search)
     tk.Button(toolbar,text='Search',command=do_search,bg=accent,fg='white',relief='flat',padx=16,pady=7).pack(side='left',padx=(10,0))
     bottom=tk.Frame(win,bg=BG);bottom.pack(fill='x',padx=20,pady=12)
     def artwork():

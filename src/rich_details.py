@@ -52,6 +52,15 @@ FIELDS = {
 }
 
 
+for _kind in ('games','movies','shows','books'):
+    FIELDS[_kind] = [(key, 'Owned (format unspecified)' if key == 'owned' else label, typ)
+                     for key,label,typ in FIELDS[_kind]]
+    if _kind == 'games':
+        FIELDS[_kind].append(('owned','Owned (format unspecified)','bool'))
+    FIELDS[_kind].extend([('owned_physical','Owned physically','bool'),
+                         ('owned_digital','Owned digitally','bool')])
+
+
 class InvalidField(ValueError):
     def __init__(self, key, message):
         self.key = key
@@ -126,6 +135,7 @@ def save_values(kind, item_id, raw_values, game_art=None, original_record=None):
         original_record = original_record or {}
         metadata = {key: values[key] for key in METADATA_FIELDS
                     if key not in original_record or values[key] != original_record[key]}
+        metadata.update({key:values[key] for key in ('owned','owned_physical','owned_digital')})
         core = tuple(values[key] for key in ('name', 'platform', 'playtime', 'price_paid',
                                             'completed', 'backlog', 'started', 'description'))
         update_game(item_id, core, metadata, game_art['cover'], game_art['extras'],

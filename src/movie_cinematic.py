@@ -1,4 +1,5 @@
 """Offline cinematic movie information and independently protected background art."""
+from ownership import describe as describe_ownership
 import tkinter as tk
 from tkinter import font as tkfont
 from database import connection
@@ -45,7 +46,7 @@ def movie_sections(record):
                 ('Price Paid', 'Not recorded' if price is None else f'£{price:,.2f}'),
                 ('Completed', 'Yes' if record.get('completed') else 'No'),
                 ('In Progress', 'Yes' if record.get('in_progress') else 'No'),
-                ('Owned', 'Yes' if record.get('owned') else 'No')]
+                ('Ownership', describe_ownership(record))]
     return facts, activity
 
 

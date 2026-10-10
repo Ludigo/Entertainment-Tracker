@@ -192,6 +192,16 @@ def setup_database():
     for field in ('provider_source','provider_id','provider_url'):
         if field not in existing_cd_columns:
             connection.execute(f'ALTER TABLE cds ADD COLUMN {field} TEXT')
+    # Preserve legacy Owned flags without guessing the format.
+    for table in ('games','movies','shows','books'):
+        existing = {r[1] for r in connection.execute(f'PRAGMA table_info({table})')}
+        for field in ('owned','owned_physical','owned_digital'):
+            if field not in existing:
+                connection.execute(f'ALTER TABLE {table} ADD COLUMN {field} INTEGER NOT NULL DEFAULT 0')
+    connection.execute("""CREATE TABLE IF NOT EXISTS book_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL,
+        started_at TEXT NOT NULL, ended_at TEXT NOT NULL,
+        duration_seconds INTEGER NOT NULL, source TEXT NOT NULL, note TEXT DEFAULT '')""")
     connection.commit()
     from artwork_preferences import install_artwork_guards
     install_artwork_guards()

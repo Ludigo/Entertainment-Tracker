@@ -453,13 +453,18 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
         completed_var = tk.BooleanVar(value=bool(record.get("completed", 0)))
         backlog_var = tk.BooleanVar(value=bool(record.get("backlog", 0)))
         started_var = tk.BooleanVar(value=bool(record.get("started", 0)))
-        for label, variable in (
+        for column, (label, variable) in enumerate((
             ("Completed", completed_var),
             ("In Backlog", backlog_var),
             ("Started Playing", started_var),
-        ):
+        )):
             tk.Checkbutton(checks, text=label, variable=variable,
-                           anchor="w").pack(anchor="w", pady=3)
+                           anchor="w").grid(row=0,column=column,sticky="w",padx=6,pady=3)
+
+        ownership_vars={key:tk.BooleanVar(value=bool(record.get(key,0))) for key in ('owned','owned_physical','owned_digital')}
+        ownership_row=tk.Frame(modal);ownership_row.pack(fill='x',padx=15,pady=4)
+        for key,label in [('owned','Owned (format unspecified)'),('owned_physical','Physical'),('owned_digital','Digital')]:
+            tk.Checkbutton(ownership_row,text=label,variable=ownership_vars[key]).pack(side='left')
 
         cover_row=tk.Frame(modal)
         cover_row.pack(fill='x',padx=15,pady=(3,6))
@@ -567,7 +572,8 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
                     playtime_entry.get(), description_entry.get('1.0', 'end-1c'),
                     completed_var.get(), backlog_var.get(), started_var.get(),
                     staged_signature(pending['metadata'],pending['cover'],pending['extras'],protect_cover.get(),pending['roles']),
-                    tuple((key,var.get()) for key,var in protect_roles.items()))
+                    tuple((key,var.get()) for key,var in protect_roles.items()),
+                    tuple((key,var.get()) for key,var in ownership_vars.items()))
         original_values = current_form_values()
         modal.has_unsaved_changes = lambda: current_form_values() != original_values
 
@@ -592,6 +598,7 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
             except ValueError:
                 error.configure(text="Price must be a non-negative number, or blank.")
                 return
+            pending['metadata'].update({key:int(var.get()) for key,var in ownership_vars.items()})
             values = (title, platform, hours, price, int(completed_var.get()),
                       int(backlog_var.get()), int(started_var.get()),
                       description_entry.get("1.0", "end-1c").strip())
@@ -822,10 +829,7 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     install_search_shortcuts(games_window,search_entry,lambda:load_games(search_entry.get()))
 
     # Enter to search
-    search_entry.bind(
-        "<Return>",
-        lambda event: search_games()
-    )
+
 
 
     # Load games when window opens
@@ -848,3 +852,4 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
                 break
 
     return games_window
+

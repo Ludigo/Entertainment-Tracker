@@ -676,10 +676,7 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     from search_shortcuts import install as install_search_shortcuts
     install_search_shortcuts(shows_window,search_entry,lambda:load_shows(search_entry.get()))
 
-    search_entry.bind(
-        "<Return>",
-        lambda event: search_shows()
-    )
+
 
 
     load_shows()
