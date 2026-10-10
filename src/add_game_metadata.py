@@ -8,7 +8,7 @@ import unicodedata
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from database import connection, PROJECT_ROOT
+from database import connection, PROJECT_ROOT, get_setting, set_setting
 from theme import BG, PANEL, PANEL_ALT, TEXT, MUTED
 from window_style import install as polish_dialog
 from media_naming import clean_name
@@ -70,8 +70,8 @@ def validated_cover(raw, label, source='Local file'):
     return dict(raw=raw,w=width,h=height,ext={'PNG':'.png','JPEG':'.jpg','WEBP':'.webp','BMP':'.bmp'}[fmt],label=label,source=source)
 
 
-def choose_local_cover(parent):
-    filename=filedialog.askopenfilename(parent=parent,title='Choose Game Cover',initialdir=import_folder('artwork'),
+def choose_local_cover(parent,role='Cover'):
+    filename=filedialog.askopenfilename(parent=parent,title='Choose Game '+role,initialdir=import_folder('artwork'),
                                        filetypes=[('Images','*.png *.jpg *.jpeg *.webp *.bmp'),('All files','*.*')])
     if not filename:return None
     try:remember_import_folder('artwork',[filename])
@@ -79,9 +79,9 @@ def choose_local_cover(parent):
     return validated_cover(Path(filename).read_bytes(),Path(filename).name)
 
 
-def preview_cover(parent,cover):
+def preview_cover(parent,cover,role='Artwork'):
     if not cover:return
-    win=tk.Toplevel(parent);polish_dialog(win);win.title('Proposed Game Cover')
+    win=tk.Toplevel(parent);polish_dialog(win);win.title('Proposed Game '+role)
     win.configure(bg=BG);win.geometry('650x610');win.transient(parent.winfo_toplevel())
     with Image.open(io.BytesIO(cover['raw'])) as image:
         picture=ImageOps.contain(image.convert('RGBA'),(610,520))
@@ -105,17 +105,20 @@ def image_digest(image):
     return hashlib.sha256(image['raw']).hexdigest()
 
 
-def staged_signature(metadata,cover,extras=(),lock_cover=False):
+def staged_signature(metadata,cover,extras=(),lock_cover=False,roles=None):
     return (tuple(sorted(metadata.items())),image_digest(cover) if cover else None,
-            tuple(sorted({image_digest(image) for image in extras})),bool(lock_cover))
+            tuple(sorted({image_digest(image) for image in extras})),bool(lock_cover),
+            tuple((key,image_digest((roles or {})[key]) if (roles or {}).get(key) else None)
+                  for key in ('background_path','logo_path')))
 
 
-def create_game(values, metadata=None, cover=None, extras=(), lock_cover=False):
+def create_game(values, metadata=None, cover=None, extras=(), lock_cover=False, roles=None):
     """No downloads on Save; reviewed bytes and SQLite changes commit together."""
     from artwork_preferences import lock_key
-    metadata=metadata or {};created=[];images=[];seen=set()
+    metadata=metadata or {};created=[];images=[];seen=set();paths={}
+    roles={key:(roles or {}).get(key) for key in ('background_path','logo_path')}
     if cover:cover=validated_cover(cover['raw'],cover['label'],cover['source'])
-    for image in ([cover] if cover else [])+list(extras):
+    for image in ([cover] if cover else [])+list(extras)+[image for image in roles.values() if image]:
         image=validated_cover(image['raw'],image['label'],image['source'])
         digest=image_digest(image)
         if digest not in seen:images.append(image);seen.add(digest)
@@ -134,9 +137,15 @@ def create_game(values, metadata=None, cover=None, extras=(), lock_cover=False):
                 target=folder/f'{clean_name(values[0])} - {role} - {uuid.uuid4().hex[:12]}{image["ext"]}'
                 created.append(target);target.write_bytes(image['raw'])
                 path=target.relative_to(PROJECT_ROOT).as_posix()
+                paths[image_digest(image)]=path
                 connection.execute('INSERT INTO artwork_library(category,item_id,image_path,width,height,source) VALUES(?,?,?,?,?,?)',
                                    ('games',game_id,path,image['w'],image['h'],image['source']))
                 if cover and index==0:connection.execute('UPDATE games SET cover_path=? WHERE id=?',(path,game_id))
+            if any(roles.values()):
+                connection.execute('CREATE TABLE IF NOT EXISTS game_detail_art (game_id INTEGER PRIMARY KEY, logo_path TEXT, background_path TEXT)')
+                connection.execute('INSERT INTO game_detail_art(game_id,logo_path,background_path) VALUES(?,?,?)',
+                                   (game_id,paths.get(image_digest(roles['logo_path'])) if roles['logo_path'] else None,
+                                    paths.get(image_digest(roles['background_path'])) if roles['background_path'] else None))
             if cover and lock_cover:
                 connection.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
                                    (lock_key('games',game_id,'cover_path'),'1'))
@@ -168,10 +177,37 @@ def review_text(parent,label,current,proposed):
     return win
 
 
-def choose_artwork(parent,accent,available,cover,extras,on_choose):
+def artwork_role_option(parent,text,variable,value):
+    """Draw explicit checked/unchecked states, independent of native radio themes."""
+    row=tk.Frame(parent,bg=PANEL,cursor='hand2')
+    indicator=tk.Canvas(row,width=18,height=18,bg=PANEL,highlightthickness=0)
+    indicator.pack(side='left')
+    indicator.create_oval(2,2,16,16,outline=TEXT,width=1)
+    dot=indicator.create_oval(6,6,12,12,outline='white',fill='white')
+    label=tk.Label(row,text=text,bg=PANEL,fg=TEXT);label.pack(side='left',padx=4)
+    def refresh(*args):
+        indicator.itemconfigure(dot,state='normal' if variable.get()==value else 'hidden')
+    def select(event=None):
+        variable.set(value);row.focus_set();return 'break'
+    trace=variable.trace_add('write',refresh)
+    def cleanup(event):
+        if event.widget is row:
+            try:variable.trace_remove('write',trace)
+            except tk.TclError:pass
+    row.configure(takefocus=True)
+    for widget in (row,indicator,label):widget.bind('<Button-1>',select)
+    row.bind('<space>',select);row.bind('<Return>',select)
+    row.bind('<FocusIn>',lambda event:indicator.configure(highlightthickness=1,highlightbackground=TEXT))
+    row.bind('<FocusOut>',lambda event:indicator.configure(highlightthickness=0))
+    row.bind('<Destroy>',cleanup)
+    refresh();row.pack(anchor='w',padx=10,pady=1)
+    return row
+
+
+def choose_artwork(parent,accent,available,cover,extras,on_choose,roles=None):
     """All choices are downloaded bytes; filters never discard selections."""
     images=list(available);seen={image_digest(image) for image in images}
-    for image in ([cover] if cover else [])+list(extras):
+    for image in ([cover] if cover else [])+list(extras)+[image for image in (roles or {}).values() if image]:
         if image_digest(image) not in seen:images.append(image);seen.add(image_digest(image))
     win=tk.Toplevel(parent);polish_dialog(win);win.title('Choose Available Game Artwork')
     win.geometry('900x720');win.minsize(650,500);win.configure(bg=BG);win.transient(parent.winfo_toplevel())
@@ -184,15 +220,25 @@ def choose_artwork(parent,accent,available,cover,extras,on_choose):
             except tk.TclError:pass
         return 'break'
     win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',close)
-    tk.Label(win,text='Choose one cover; tick extra images to keep in Artwork Manager.',bg=BG,fg=TEXT,
+    tk.Label(win,text='Choose artwork roles; tick extra images to keep in Artwork Manager. Click any image to preview.',bg=BG,fg=TEXT,
              wraplength=820,justify='left').pack(anchor='w',padx=16,pady=12)
     sizes={'All sizes':0,'512 px+':512,'1280 px+':1280,'1920 px+':1920,'3840 px+':3840}
-    minimum=tk.StringVar(value='All sizes');chosen=tk.StringVar(value=image_digest(cover) if cover else '')
+    shapes=('All shapes','Portrait','Landscape','Square')
+    saved_minimum=get_setting('add_game_art_minimum','All sizes')
+    saved_shape=get_setting('add_game_art_shape','All shapes')
+    minimum=tk.StringVar(value=saved_minimum if saved_minimum in sizes else 'All sizes')
+    shape=tk.StringVar(value=saved_shape if saved_shape in shapes else 'All shapes')
+    chosen=tk.StringVar(value=image_digest(cover) if cover else '')
+    role_choices={key:tk.StringVar(value=image_digest(image) if image else '') for key,image in (roles or {}).items()
+                  if key in ('background_path','logo_path')}
+    if roles is not None:
+        for key in ('background_path','logo_path'):role_choices.setdefault(key,tk.StringVar(value=''))
     selected={image_digest(image):tk.BooleanVar(value=any(image_digest(extra)==image_digest(image) for extra in extras)) for image in images}
     toolbar=tk.Frame(win,bg=BG);toolbar.pack(fill='x',padx=16)
     tk.Label(toolbar,text='Minimum width:',bg=BG,fg=TEXT).pack(side='left')
     combo=ttk.Combobox(toolbar,textvariable=minimum,values=list(sizes),state='readonly',width=14);combo.pack(side='left',padx=8)
-    count=tk.StringVar();tk.Label(toolbar,textvariable=count,bg=BG,fg=MUTED).pack(side='left')
+    shape_combo=ttk.Combobox(toolbar,textvariable=shape,values=shapes,state='readonly',width=14);shape_combo.pack(side='left',padx=8)
+    count=tk.StringVar();tk.Label(win,textvariable=count,bg=BG,fg=MUTED,wraplength=820).pack(anchor='w',padx=16,pady=4)
     frame=tk.Frame(win,bg=BG);frame.pack(fill='both',expand=True,padx=16,pady=12)
     canvas=tk.Canvas(frame,bg=BG,highlightthickness=0);scroll=ttk.Scrollbar(frame,command=canvas.yview);scroll.pack(side='right',fill='y')
     canvas.configure(yscrollcommand=scroll.set);canvas.pack(fill='both',expand=True)
@@ -201,8 +247,10 @@ def choose_artwork(parent,accent,available,cover,extras,on_choose):
     canvas.bind('<Configure>',lambda event:canvas.itemconfigure(window_id,width=event.width))
     photos=[]
     def render(event=None):
+        from artwork_manager import classify
         for child in rows.winfo_children():child.destroy()
-        photos.clear();visible=[image for image in images if image['w']>=sizes[minimum.get()]]
+        photos.clear();visible=[image for image in images if image['w']>=sizes[minimum.get()] and
+                               (shape.get()=='All shapes' or classify(image['w'],image['h'])==shape.get())]
         count.set(f'{len(visible)} of {len(images)} images · selections retained when filtering')
         for image in visible:
             row=tk.Frame(rows,bg=PANEL);row.pack(fill='x',pady=5)
@@ -212,21 +260,32 @@ def choose_artwork(parent,accent,available,cover,extras,on_choose):
             preview.bind('<Button-1>',lambda event,image=image:preview_cover(win,image))
             tk.Label(row,text=f"{image['label']}\n{image['w']} × {image['h']} · {len(image['raw'])/1024:.1f} KB",
                      bg=PANEL,fg=TEXT,wraplength=400,justify='left').pack(anchor='w',padx=10,pady=(12,6))
-            tk.Radiobutton(row,text='Use as cover',variable=chosen,value=image_digest(image),bg=PANEL,fg=TEXT,
-                           selectcolor=PANEL_ALT).pack(anchor='w',padx=10)
+            artwork_role_option(row,'Use as cover',chosen,image_digest(image))
+            for key,var in role_choices.items():
+                artwork_role_option(row,'Use as '+('background' if key=='background_path' else 'logo'),var,image_digest(image))
             tk.Checkbutton(row,text='Save in artwork collection',variable=selected[image_digest(image)],bg=PANEL,fg=TEXT,
                            selectcolor=PANEL_ALT).pack(anchor='w',padx=10,pady=(0,10))
-        if not visible:tk.Label(rows,text='No available images meet this minimum width.',bg=BG,fg=MUTED).pack(pady=25)
+        if not visible:tk.Label(rows,text='No available images match these filters. Change the filters to see more.',bg=BG,fg=MUTED).pack(pady=25)
         canvas.yview_moveto(0)
-    combo.bind('<<ComboboxSelected>>',render)
+    def filter_changed(event=None):
+        try:
+            set_setting('add_game_art_minimum',minimum.get());set_setting('add_game_art_shape',shape.get())
+        except Exception:pass
+        render()
+    combo.bind('<<ComboboxSelected>>',filter_changed);shape_combo.bind('<<ComboboxSelected>>',filter_changed)
     footer=tk.Frame(win,bg=BG);footer.pack(fill='x',padx=16,pady=(0,14))
     def apply():
         cover=next((image for image in images if image_digest(image)==chosen.get()),None)
         extras=[image for image in images if selected[image_digest(image)].get() and image is not cover]
-        on_choose(cover,extras)
+        if roles is None:on_choose(cover,extras)
+        else:on_choose(cover,extras,{key:next((image for image in images if image_digest(image)==var.get()),None)
+                                    for key,var in role_choices.items()})
     tk.Button(footer,text='Use Choices',command=apply,bg=accent,fg='white',relief='flat',padx=14,pady=8).pack(side='right')
     tk.Button(footer,text='Close',command=close,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=14,pady=8).pack(side='right',padx=8)
-    tk.Radiobutton(footer,text='Do not replace cover',variable=chosen,value='',bg=BG,fg=TEXT,selectcolor=PANEL_ALT).pack(side='left')
+    clear=tk.Menubutton(footer,text='Clear role ▾',bg=PANEL_ALT,fg=TEXT,relief='flat',padx=12,pady=8)
+    clear.pack(side='left');menu=tk.Menu(clear,tearoff=False,bg=PANEL_ALT,fg=TEXT);clear.configure(menu=menu)
+    menu.add_command(label='Cover',command=lambda:chosen.set(''))
+    for key,var in role_choices.items():menu.add_command(label='Background' if key=='background_path' else 'Logo',command=lambda var=var:var.set(''))
     render();return win
 
 
@@ -238,7 +297,8 @@ def open_search(parent,accent,current_values,on_apply):
     win.geometry('980x760');win.minsize(750,590);win.configure(bg=BG)
     win.transient(parent.winfo_toplevel());previous_grab=win.grab_current();win.grab_set()
     state={'closed':False,'generation':0,'item':None,'cover':None,'checks':{},'photo':None,'busy':False,
-           'available':[],'extras':list(current_values().get('_extras',()))}
+           'available':list(current_values().get('_available',())),'extras':list(current_values().get('_extras',())),
+           'roles':dict(current_values().get('_roles',{}))}
     messages=queue.Queue()
     def close(event=None):
         state['closed']=True;state['generation']+=1
@@ -288,13 +348,14 @@ def open_search(parent,accent,current_values,on_apply):
     tk.Label(right,textvariable=artwork_info,bg=PANEL_ALT,fg=MUTED,wraplength=215).pack(side='bottom',pady=5,before=cover_label)
     def artwork_choices():
         if state['busy']:status.set('Wait for the artwork request to finish.');return
-        if not state['available'] and not state['cover'] and not state['extras']:
+        if not state['available'] and not state['cover'] and not state['extras'] and not any(state['roles'].values()):
             status.set('Select a Steam result with available artwork first.');return
-        def chosen(cover,extras):
-            show_cover(cover,bool(cover));state['extras']=extras
-            artwork_info.set(f'{len(extras)} extra images selected')
+        def chosen(cover,extras,roles):
+            show_cover(cover,bool(cover));state['extras']=extras;state['roles']=roles
+            artwork_info.set(f'{len(extras)} extras · Background: '+('yes' if roles.get('background_path') else 'no')+
+                             ' · Logo: '+('yes' if roles.get('logo_path') else 'no'))
             status.set('Artwork choices staged here. Apply Selected to Form transfers them to Add Game.')
-        choose_artwork(win,accent,state['available'],state['cover'] if use_cover.get() else None,state['extras'],chosen)
+        choose_artwork(win,accent,state['available'],state['cover'] if use_cover.get() else None,state['extras'],chosen,roles=state['roles'])
     tk.Button(right,text='Choose available artwork…',command=artwork_choices,bg=PANEL,fg=TEXT,relief='flat',
               padx=8,pady=6).pack(side='bottom',pady=5,before=cover_label)
     def show_cover(cover,selected=False):
@@ -396,13 +457,15 @@ def open_search(parent,accent,current_values,on_apply):
     def apply():
         if state['busy']:status.set('Wait for the current search/details request to finish.');return
         item=state['item']
-        if item is None and not state['cover'] and not state['extras']:status.set('Choose a Steam result or a local cover first.');return
+        if item is None and not state['cover'] and not state['extras'] and not any(state['roles'].values()):
+            status.set('Choose a Steam result or a local cover first.');return
         updates={key:item[key] for key,var in state['checks'].items() if var.get()} if item else {}
         cover=state['cover'] if use_cover.get() else None
         extras_changed={image_digest(image) for image in state['extras']}!={image_digest(image) for image in current_values().get('_extras',())}
-        if not updates and not cover and not state['extras'] and not extras_changed:
+        roles_changed=staged_signature({},None,roles=state['roles'])!=staged_signature({},None,roles=current_values().get('_roles'))
+        if not updates and not cover and not state['extras'] and not extras_changed and not roles_changed:
             status.set('Tick at least one field or choose artwork to apply.');return
-        on_apply(updates,cover,list(state['extras']),lock_cover.get() if cover else None)
+        on_apply(updates,cover,list(state['extras']),lock_cover.get() if cover else None,dict(state['roles']),list(state['available']))
         status.set('Selection applied to Add Game. You can review another result or close this window; Save Game completes the addition.')
     tk.Button(toolbar,text='Search Steam',command=search,bg=accent,fg='white',relief='flat',padx=12,pady=6).pack(side='left',padx=(10,0))
     entry.bind('<Return>',lambda event:search());results.bind('<<TreeviewSelect>>',selected)
