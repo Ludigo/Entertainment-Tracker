@@ -1,4 +1,6 @@
-# Entertainment Tracker v19
+# Entertainment Tracker v1.0
+
+This is the **beta development branch**. The latest approved source is the former Test 53. The next candidate is **Beta 1.54**; subsequent builds will be Beta 1.55, Beta 1.56, and so on. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
 
 A personal, non-commercial Windows desktop application built with Python.
 
@@ -33,7 +35,7 @@ The app creates its local `data/entertainment.db` database automatically when la
 
 Optional process-based game tracking uses `psutil` (install with `python -m pip install psutil`).
 
-## v19 — Data Safety & Reliability Update
+## v1.0 — Data Safety & Reliability Update
 
 This release publishes the completed Phase 1 version, Windows-tested by the maintainer.
 
