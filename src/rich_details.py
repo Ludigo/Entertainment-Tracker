@@ -61,6 +61,13 @@ for _kind in ('games','movies','shows','books'):
                          ('owned_digital','Owned digitally','bool')])
 
 
+from collection_tools import COMMON_FIELDS
+for _kind in FIELDS:
+    FIELDS[_kind].extend(COMMON_FIELDS)
+    if _kind not in ('books','cds'):
+        FIELDS[_kind].append(('barcode','Barcode','text'))
+
+
 class InvalidField(ValueError):
     def __init__(self, key, message):
         self.key = key
@@ -70,7 +77,7 @@ class InvalidField(ValueError):
 def parse_values(kind, raw_values):
     values = {}
     for key, label, field_type in FIELDS[kind]:
-        raw = str(raw_values[key]).strip()
+        raw = str(raw_values.get(key,0 if field_type=='bool' else '')).strip()
         try:
             if field_type == 'bool':
                 if raw not in ('0', '1'):
@@ -95,6 +102,10 @@ def parse_values(kind, raw_values):
                 maximum = 9999 if field_type == 'int' else 9223372036854775807
                 if (value is None and field_type == 'count') or (value is not None and not 0 <= value <= maximum):
                     raise ValueError(f'{label} must be between 0 and {maximum}.')
+            elif field_type == 'date':
+                from datetime import date
+                value=raw or None
+                if raw and (len(raw)!=10 or date.fromisoformat(raw).isoformat()!=raw):raise ValueError(f'{label} must be YYYY-MM-DD or blank.')
             elif field_type == 'money':
                 try:
                     value = float(raw.replace('£', '').replace(',', '')) if raw else None
@@ -107,6 +118,8 @@ def parse_values(kind, raw_values):
             values[key] = value
         except (ValueError, OverflowError) as exc:
             raise InvalidField(key, str(exc)) from exc
+    from collection_tools import normalise_tags
+    values['tags']=normalise_tags(values.get('tags'))
     if kind == 'cds' and values['disc_count'] < 1:
         raise InvalidField('disc_count','Disc count must be at least 1.')
     if kind == 'shows' and values['episode_reached'] > values['episode_count']:
@@ -135,7 +148,7 @@ def save_values(kind, item_id, raw_values, game_art=None, original_record=None):
         original_record = original_record or {}
         metadata = {key: values[key] for key in METADATA_FIELDS
                     if key not in original_record or values[key] != original_record[key]}
-        metadata.update({key:values[key] for key in ('owned','owned_physical','owned_digital')})
+        metadata.update({key:values[key] for key in ('owned','owned_physical','owned_digital','wishlist','tags','purchase_date','purchase_shop','condition','barcode')})
         core = tuple(values[key] for key in ('name', 'platform', 'playtime', 'price_paid',
                                             'completed', 'backlog', 'started', 'description'))
         update_game(item_id, core, metadata, game_art['cover'], game_art['extras'],

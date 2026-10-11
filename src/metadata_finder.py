@@ -69,7 +69,9 @@ def providers(kind, token=''):
     return options
 
 def search_provider(kind, title, provider, tmdb_token=''):
-    q = urllib.parse.quote(title)
+    compact=''.join(title.split()).replace('-','').upper()
+    isbn_query=kind=='books' and (len(compact)==13 and compact.isdecimal() or len(compact)==10 and compact[:9].isdecimal() and (compact[-1].isdigit() or compact[-1]=='X'))
+    q = urllib.parse.quote('isbn:'+compact if isbn_query and provider in ('Google Books','Open Library') else title)
     if provider == 'Wikipedia':
         # Public MediaWiki API: no API key required. Useful as an additional
         # fallback source when the category's specialist provider has no match.
@@ -98,7 +100,7 @@ def search_provider(kind, title, provider, tmdb_token=''):
                 cover=cover, image_links=info.get('imageLinks') or {}, google_id=entry.get('id')))
         return output
     if provider == 'Open Library':
-        data = get_json(f'https://openlibrary.org/search.json?title={q}&limit=15&fields=key,title,author_name,first_publish_year,cover_i,isbn,publisher,number_of_pages_median')
+        data = get_json(f'https://openlibrary.org/search.json?{'q' if isbn_query else 'title'}={q}&limit=15&fields=key,title,author_name,first_publish_year,cover_i,isbn,publisher,number_of_pages_median')
         return [result(provider, x.get('title',''), ', '.join(x.get('author_name',[])[:2]),
             author=', '.join(x.get('author_name',[])[:3]), release_year=x.get('first_publish_year'),
             publisher=', '.join(x.get('publisher',[])[:2]), isbn=next(iter(x.get('isbn',[])),''),

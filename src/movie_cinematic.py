@@ -80,15 +80,20 @@ def render(parent, record, accent, page=None, page_state=None, *,
     fonts = {name: tkfont.Font(root=canvas, family='Arial', size=size, weight=weight)
              for name, size, weight in [('title', 25, 'bold'), ('heading', 12, 'bold'),
                                        ('label', 8, 'bold'), ('value', 11, 'normal')]}
-    state = {'photo': None, 'job': None, 'painting': False}
+    state = {'photo': None, 'job': None, 'painting': False, 'offset':None}
 
     def request_paint(event=None):
         if state['job'] is None and canvas.winfo_exists():
             state['job'] = canvas.after_idle(paint)
 
+    def pin_background():
+        if canvas.winfo_exists():
+            canvas.coords('surface',0,canvas.canvasy(0))
+            canvas.tag_lower('surface')
+
     def scroll(*args):
         canvas.yview(*args)
-        request_paint()
+        pin_background()
 
     def scroll_position(first, last):
         bar.set(first, last)
@@ -97,6 +102,7 @@ def render(parent, record, accent, page=None, page_state=None, *,
             bar.pack(side='right', fill='y')
         elif not needed and bar.winfo_manager():
             bar.pack_forget()
+        pin_background()
 
     bar.configure(command=scroll)
     canvas.configure(yscrollcommand=scroll_position)
@@ -172,22 +178,17 @@ def render(parent, record, accent, page=None, page_state=None, *,
                 x = canvas.winfo_rootx() - page.winfo_rootx()
                 top = canvas.winfo_rooty() - page.winfo_rooty()
                 tile = base.crop((x, top, x + width, top + height))
-            # Panel surfaces are blended with the same fixed artwork as Games.
-            from PIL import ImageDraw
-            overlay = Image.new('RGBA', tile.size, (0, 0, 0, 0))
-            draw = ImageDraw.Draw(overlay)
-            for x1, y1, x2, y2 in panels:
-                draw.rounded_rectangle((x1, y1 - offset, x2, y2 - offset), radius=12,
-                                       fill=(13, 16, 22, 210), outline=(88, 96, 109, 110))
-            tile = Image.alpha_composite(tile.convert('RGBA'), overlay)
             state['photo'] = ImageTk.PhotoImage(tile)
             canvas.delete('surface')
             canvas.create_image(0, offset, image=state['photo'], anchor='nw', tags='surface')
+            from cinematic_panels import draw_panels
+            state['panels']=draw_panels(canvas,panels)
             canvas.tag_lower('surface')
         else:
             for x1, y1, x2, y2 in panels:
                 item = canvas.create_rectangle(x1, y1, x2, y2, fill='#12161c', outline='#343b47', tags='paint')
                 canvas.tag_lower(item)
+        state['offset']=canvas.canvasy(0)
         state['painting'] = False
 
     def wheel(event):

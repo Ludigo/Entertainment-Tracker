@@ -70,6 +70,8 @@ def artist_name(item):
 def search(query, provider='MusicBrainz', token=''):
     if not query.strip():
         raise ValueError('Enter an album, artist or barcode to search.')
+    compact=''.join(query.split()).replace('-','')
+    if compact.isdecimal() and len(compact) in (8,12,13,14):query=compact
     if provider == 'Discogs':
         params = {'type': 'release', 'per_page': 25}
         params['barcode' if query.strip().isdecimal() else 'q'] = query.strip()

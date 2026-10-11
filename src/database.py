@@ -202,6 +202,8 @@ def setup_database():
         id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL,
         started_at TEXT NOT NULL, ended_at TEXT NOT NULL,
         duration_seconds INTEGER NOT NULL, source TEXT NOT NULL, note TEXT DEFAULT '')""")
+    from collection_tools import migrate
+    migrate()
     connection.commit()
     from artwork_preferences import install_artwork_guards
     install_artwork_guards()

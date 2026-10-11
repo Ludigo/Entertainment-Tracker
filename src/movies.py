@@ -69,6 +69,8 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None, restore_libra
     # -------------------------
 
     # Shared filters sit in the same position across all four libraries.
+    from library_summary import create_footer,summary_text
+    summary_footer=create_footer(movies_window)
     filters = build_filters(movies_window, "movies", lambda: load_movies(search_entry.get()))
 
     table_frame = tk.Frame(movies_window)
@@ -196,6 +198,8 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None, restore_libra
     # -------------------------
 
     def load_movies(search=""):
+        from library_filters import refresh_choices
+        refresh_choices("movies",filters)
 
         # Clear current table
         for row in movie_table.get_children():
@@ -207,6 +211,7 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None, restore_libra
         cursor.execute("SELECT * FROM movies WHERE " + condition + " ORDER BY " + ordering, values)
         movies = cursor.fetchall()
         filtered_ids = [row[0] for row in movies]
+        summary_footer.configure(text=summary_text('movies',filtered_ids))
         filters["count"].configure(text=f"Showing {len(movies)} items")
         filtered_ids = [row[0] for row in movies]
         filters["count"].configure(text=f"Showing {len(movies)} items")
@@ -402,6 +407,13 @@ def open_movies(parent, on_open_detail=None, initial_edit_id=None, restore_libra
     movie_table.bind("<Double-1>", on_table_double_click)
 
 
+    from collection_tools import install_tools
+    collection_tools_bar=install_tools(movies_window,'movies',
+                  lambda:[movie_table.item(r,'values')[0] for r in movie_table.get_children()],
+                  lambda:[movie_table.item(r,'values')[0] for r in movie_table.selection()],
+                  lambda:load_movies(search_entry.get()),grid_view)
+    from library_header import polish
+    polish(movies_window,search_frame,collection_tools_bar,'movies',view_mode)
     from search_shortcuts import install as install_search_shortcuts
     install_search_shortcuts(movies_window,search_entry,lambda:load_movies(search_entry.get()))
 

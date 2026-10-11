@@ -75,7 +75,7 @@ def apply_theme(widget, accent):
             elif isinstance(child, tk.Label):
                 child.configure(bg=BG, fg=TEXT)
             elif isinstance(child, tk.Button):
-                child.configure(bg=PANEL_ALT, fg=TEXT, activebackground=accent,
+                child.configure(bg=accent if (getattr(child,'_et_primary_action',False) or getattr(child,'_et_active_library_view',False)) else PANEL_ALT, fg='white' if (getattr(child,'_et_primary_action',False) or getattr(child,'_et_active_library_view',False)) else TEXT, activebackground=accent,
                                 activeforeground="white", relief="flat",
                                 bd=0, cursor="hand2")
                 if not getattr(child, "_et_hover_installed", False):
@@ -86,8 +86,9 @@ def apply_theme(widget, accent):
                             colour = get_setting("accent_color", DEFAULT_ACCENT)
                             button.configure(bg=colour, fg="white")
                     def on_leave(event, button=child):
+                        from database import get_setting
                         if str(button.cget("state")) != "disabled":
-                            button.configure(bg=PANEL_ALT, fg=TEXT)
+                            button.configure(bg=get_setting('accent_color',DEFAULT_ACCENT) if getattr(button,'_et_primary_action',False) else PANEL_ALT, fg='white' if getattr(button,'_et_primary_action',False) else TEXT)
                     child.bind("<Enter>", on_enter, add="+")
                     child.bind("<Leave>", on_leave, add="+")
             elif isinstance(child, tk.Entry):
@@ -102,3 +103,4 @@ def apply_theme(widget, accent):
         except tk.TclError:
             pass
         apply_theme(child, accent)
+

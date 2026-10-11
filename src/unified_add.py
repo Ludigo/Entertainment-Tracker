@@ -220,7 +220,7 @@ class AddDraft:
         self.season_var=tk.StringVar(value='');self.season_box=ttk.Combobox(self.finder,textvariable=self.season_var,state='readonly')
         if self.kind=='shows':self.season_box.pack(fill='x',padx=18,pady=5)
         self.season_box.bind('<<ComboboxSelected>>',self.select_season)
-        self.finder_status=tk.StringVar(value='Search by title. Select the edition you own.')
+        self.finder_status=tk.StringVar(value='Search by title or ISBN barcode. Select the edition you own.' if self.kind=='books' else 'Search by title. Barcode lookup is available for books and albums; other sections support manual barcode entry.')
         tk.Label(self.finder,textvariable=self.finder_status,bg=PANEL,fg=MUTED,wraplength=630,justify='left').pack(fill='x',padx=18,pady=10)
         reviewbody=tk.Frame(self.finder,bg=PANEL)
         buttons=tk.Frame(self.finder,bg=PANEL);buttons.pack(side='bottom',fill='x',padx=18,pady=6)

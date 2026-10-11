@@ -1,5 +1,49 @@
 # Changelog
 
+## Beta 1.67 — Games Details Style
+
+Windows-tested and approved by the maintainer, including the final independent-panel and fixed-background scrolling correction.
+
+- Replaces the earlier scroll redraw fix: Games and media panels are independent rounded images at the same document coordinates as text; the plain background is pinned synchronously and never scrolls with content.
+
+- Scroll correction: Games redraws its rounded panel surface as content moves; cinematic media details refresh fixed artwork on scrollbar-originated scrolling as well as mouse-wheel scrolling.
+
+- Games retains its existing panel layout, screenshots, description and recent sessions.
+- Smooth dark rounded panels and subtle borders replace dotted overlays.
+- Accent headings and lighter value typography match the other cinematic sections.
+
+
+## Beta 1.66 — Consistent Library Headers
+
+Windows-tested and approved by the maintainer, including the final independent-panel and fixed-background scrolling correction.
+
+- CD-style bottom summaries added to Games, Movies, Shows and Books, showing filtered counts and saved activity totals in List and Covers views.
+
+- Games correction: header styling skips ttk dropdowns so hidden legacy filters are not packed back into the search row.
+
+- All five libraries use the CD-style header with consistent search/action button spacing.
+- Edit, Delete, Bulk Edit, Export and Games Toggle Playing are accessible through Actions where applicable.
+- Add and the selected List/Covers view retain accent styling through theme application.
+- Shorter quick-action helper text; existing callbacks and right-click actions retained.
+
+
+## Beta 1.65 — Collection Tools & Album Editions
+
+Windows-tested and approved by the maintainer, including the corrected layout.
+
+- Layout correction: advanced filter rows align consistently, expanded filters stay above the count footer, and CDs uses the Games-style centred heading/search/actions/view controls with ownership and sort in the shared filter panel.
+
+- Album listings group independent artist/title editions, with an edition selector.
+- Expanded metadata, ownership, wishlist, tags, seller and condition filters.
+- Statistics shows recorded spend, ownership, activity and cost/hour for visible sections.
+- Wishlist, custom tags, purchase date, seller/shop and condition across all sections.
+- Book ISBN lookup through Open Library/Google Books and CD barcode lookup through MusicBrainz/Discogs; manual barcode entry elsewhere.
+- Track listens save listening time and a snapshot/session without incrementing full-album plays.
+- Quick actions update a selected record’s ownership, wishlist and applicable completion/watch status.
+- Filtered CSV export includes actual records behind visible edition/season groups and useful metadata.
+- Additive migration preserves existing collections, activity and preferences.
+- Approved 1.64 Add artwork controls, previews, Enter handling and Settings layout retained.
+
 ## Beta 1.64 — Unified Add & Collection Sections
 
 Windows-tested and approved by the maintainer, including artwork assignment and Settings layout corrections.
@@ -94,3 +138,4 @@ Windows-tested and approved by the maintainer.
 - Existing movie/show/book metadata and artwork workflows retained.
 
 Timer sessions add elapsed listening time; Log Full Album Play adds one play and the complete tracklist duration. Choose the appropriate method for each listen to avoid counting the same time twice. Unknown track durations stay unknown.
+

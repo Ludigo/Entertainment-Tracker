@@ -135,6 +135,11 @@ class CoverGrid(tk.Frame):
             listings=groups([row[0] for row in self.rows])
             self.show_season_counts={g['id']:len({r['season'] for r in g['members']}) for g in listings}
             self.rows=[(g['id'],g['name'],g['cover_path']) for g in listings]
+        if self.kind=='cds':
+            from cd_series import groups
+            listings=groups([r[0] for r in self.rows])
+            self.edition_counts={g['id']:len(g['members']) for g in listings}
+            self.rows=[(g['id'],g['name'],g['cover_path']) for g in listings]
         self.page = 0
         self.render()
 
@@ -202,6 +207,9 @@ class CoverGrid(tk.Frame):
                 count=getattr(self,'show_season_counts',{}).get(item_id,1)
                 tk.Label(card,text=name[:23]+f' · {count} season'+('s' if count!=1 else ''),
                          bg=PANEL,fg=TEXT,font=('Arial',9)).pack(fill='x')
+            if self.kind=='cds':
+                count=getattr(self,'edition_counts',{}).get(item_id,1)
+                tk.Label(card,text=f'{name[:23]} · {count} edition'+('s' if count!=1 else ''),bg=PANEL,fg=TEXT,font=('Arial',9)).pack(fill='x')
             self._install_wheel_tag(picture)
 
             # Keep hover visually static: no border, font, size or padding changes.
@@ -215,6 +223,7 @@ class CoverGrid(tk.Frame):
             picture.bind("<Enter>", highlight)
             picture.bind("<Leave>", unhighlight)
             for widget in (card, image_holder, picture):
+                widget.bind("<Button-3>",lambda event,ident=item_id:getattr(self,"quick_actions",lambda *args:None)(ident,event.x_root,event.y_root))
                 widget.bind("<Button-1>", lambda event, ident=item_id: self.open_detail(ident))
         total_pages = max(1, (len(self.rows) + PAGE_SIZE - 1) // PAGE_SIZE)
         self.status.configure(text=f"{len(self.rows):,} items  •  Page {self.page + 1} of {total_pages}")

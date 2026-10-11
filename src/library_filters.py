@@ -6,12 +6,17 @@ from theme import BG, PANEL, PANEL_ALT, TEXT, MUTED, BORDER
 
 SORTS = ('Title A–Z', 'Title Z–A', 'Recently Added', 'Oldest Added', 'Year: Newest', 'Year: Oldest')
 FIELDS = {
- 'games': [('Platform','platform'), ('Release year','release_year')],
- 'movies': [('Director','director'), ('Release year','release_year')],
+ 'games': [('Platform','platform'), ('Genre','genre'), ('Release year','release_year')],
+ 'movies': [('Director','director'), ('Genre','genre'), ('Release year','release_year')],
  'shows': [('Genre','genre'), ('Type','type'), ('Release year','release_year')],
  'books': [('Genre','genre'), ('Author','author'), ('Type','type'), ('Release year','release_year')],
 }
-STATUSES = {'games':('All statuses','Backlog','Completed','Started','Not started','Not completed'),
+FIELDS['cds']=[('Artist','artist'),('Genre','genre'),('Release year','release_year')]
+for _kind in FIELDS:
+ FIELDS[_kind] += [('Wishlist','_wishlist'),('Tag','tags'),('Shop / seller','purchase_shop'),('Condition','condition')]
+
+CD_SORTS=('Title','Artist','Year','Most played','Listening time')
+STATUSES = {'cds':('All','Physical','Digital','Both','Not owned'),'games':('All statuses','Backlog','Completed','Started','Not started','Not completed'),
  'movies':('All statuses','Watched','Unwatched'),
  'shows':('All statuses','Watching','Completed','Not started'),
  'books':('All statuses','Reading','Finished','Not started')}
@@ -29,7 +34,11 @@ def where_clause(kind, search, state):
   params.append('%'+search+'%')
  for field,var in state['extra'].items():
   val=var.get()
-  if field in cols and val!='All':
+  if field=='_wishlist' and val!='All':
+   query+=' AND wishlist=?';params.append(int(val=='On wishlist'))
+  elif field=='tags' and val!='All':
+   query+=' AND collection_has_tag(tags,?)=1';params.append(val)
+  elif field in cols and val!='All':
    query+=' AND '+field+' = ?';params.append(val)
  ownership=state.get('ownership')
  if ownership and {'owned','owned_physical','owned_digital'}.issubset(cols):
@@ -43,7 +52,7 @@ def where_clause(kind, search, state):
  'movies':{'Watched':'watch_count > 0','Unwatched':'watch_count = 0'},
  'shows':{'Watching':'in_progress = 1','Completed':'completed = 1','Not started':'in_progress = 0 AND completed = 0'},
  'books':{'Reading':'in_progress = 1','Finished':'completed = 1','Not started':'in_progress = 0 AND completed = 0'}}
- rule=rules[kind].get(status)
+ rule=rules.get(kind,{}).get(status)
  if rule:query+=' AND ('+rule+')'
  sort=state['sort'].get()
  ordering={'Title A–Z':'name COLLATE NOCASE ASC, id ASC','Title Z–A':'name COLLATE NOCASE DESC, id DESC',
@@ -53,6 +62,20 @@ def where_clause(kind, search, state):
  if 'release_year' not in cols and sort.startswith('Year:'):order=ordering['Title A–Z']
  return query,params,order
 
+def field_choices(kind,field):
+    if field=='_wishlist':return ['All','On wishlist','Not on wishlist']
+    if field=='tags':
+        from collection_tools import tag_choices
+        return ['All']+tag_choices(kind)
+    cursor.execute('SELECT DISTINCT '+field+' FROM '+kind+' WHERE '+field+
+                   " IS NOT NULL AND TRIM(CAST("+field+" AS TEXT)) != '' ORDER BY "+field+' COLLATE NOCASE')
+    return ['All']+[str(r[0]) for r in cursor.fetchall()]
+
+def refresh_choices(kind,state):
+    for field,box in state.get('boxes',{}).items():
+        choices=field_choices(kind,field);box.configure(values=choices)
+        if state['extra'][field].get() not in choices:state['extra'][field].set('All')
+
 def build_filters(parent, kind, refresh):
     """Compact, consistent library toolbar with a fixed action row."""
     accent = get_setting('accent_color', '#B23A48')
@@ -60,7 +83,7 @@ def build_filters(parent, kind, refresh):
     frame.pack(fill='x', padx=20, pady=(5, 12))
     inner = tk.Frame(frame, bg=PANEL)
     inner.pack(fill='x', padx=18, pady=(14, 12))
-    state = {'extra': {}}
+    state = {'extra': {},'boxes': {}}
 
     heading = tk.Frame(inner, bg=PANEL)
     heading.pack(fill='x', pady=(0, 13))
@@ -72,7 +95,7 @@ def build_filters(parent, kind, refresh):
 
     def combo(host, label, choices, setting, column, width=19):
         cell = tk.Frame(host, bg=PANEL)
-        cell.grid(row=0, column=column, sticky='ew', padx=(0, 12))
+        cell.grid(row=0, column=column, sticky='ew', padx=(0, 12), pady=(0,10) if label=='Ownership' and kind!='cds' else 0)
         tk.Label(cell, text=label.upper(), bg=PANEL, fg=MUTED,
                  font=('Arial', 8, 'bold')).pack(anchor='w', pady=(0, 6))
         saved = get_setting(setting, choices[0])
@@ -88,8 +111,8 @@ def build_filters(parent, kind, refresh):
     top.grid_columnconfigure(0, weight=1, uniform='filters')
     top.grid_columnconfigure(1, weight=1, uniform='filters')
     top.grid_columnconfigure(2, weight=0)
-    state['status'] = combo(top, 'Status', STATUSES[kind], kind+'_filter_status', 0)
-    state['sort'] = combo(top, 'Sort by', SORTS, kind+'_filter_sort', 1)
+    state['status'] = combo(top, 'Ownership' if kind=='cds' else 'Status', STATUSES[kind], kind+'_filter_status', 0)
+    state['sort'] = combo(top, 'Sort by', CD_SORTS if kind=='cds' else SORTS, kind+'_filter_sort', 1)
 
     advanced = tk.Frame(inner, bg=PANEL)
     available = columns(kind)
@@ -97,17 +120,14 @@ def build_filters(parent, kind, refresh):
     advanced.grid_columnconfigure(1, weight=1, uniform='advanced')
     advanced.grid_columnconfigure(2, weight=1, uniform='advanced')
     # Use rows of three; no horizontal overflow as additional filters are added.
-    state['ownership']=combo(advanced,'Ownership',('All','Physical','Digital','Both','Owned, format unspecified','Not marked owned'),kind+'_filter_ownership',0)
-    state['extra']['_ownership']=state['ownership']
-    index = 1
+    if kind!='cds':
+        state['ownership']=combo(advanced,'Ownership',('All','Physical','Digital','Both','Owned, format unspecified','Not marked owned'),kind+'_filter_ownership',0)
+        state['extra']['_ownership']=state['ownership']
+    index = 0 if kind=='cds' else 1
     for label, field in FIELDS[kind]:
-        if field not in available:
+        if field not in available and field!='_wishlist':
             continue
-        cursor.execute('SELECT DISTINCT '+field+' FROM '+kind+' WHERE '+field+
-                       " IS NOT NULL AND TRIM(CAST("+field+" AS TEXT)) != '' ORDER BY "+field+' COLLATE NOCASE')
-        choices = ['All'] + [str(row[0]) for row in cursor.fetchall()]
-        if len(choices) <= 1:
-            continue
+        choices=field_choices(kind,field)
         cell = tk.Frame(advanced, bg=PANEL)
         cell.grid(row=index//3, column=index%3, sticky='ew', padx=(0, 12), pady=(0, 10))
         tk.Label(cell, text=label.upper(), bg=PANEL, fg=MUTED,
@@ -121,6 +141,7 @@ def build_filters(parent, kind, refresh):
         select.bind('<<ComboboxSelected>>', lambda _event, v=var, key=setting:
                     (set_setting(key, v.get()), refresh()))
         state['extra'][field] = var
+        state['boxes'][field] = select
         index += 1
 
     actions = tk.Frame(top, bg=PANEL)
@@ -130,7 +151,7 @@ def build_filters(parent, kind, refresh):
             advanced.pack_forget()
             toggle_button.configure(text='Advanced  +')
         else:
-            advanced.pack(fill='x', pady=(15, 0))
+            advanced.pack(fill='x', pady=(15, 0), before=footer)
             toggle_button.configure(text='Advanced  −')
     toggle_button = tk.Button(actions, text='Advanced  +', command=toggle,
                               bg=PANEL_ALT, fg=TEXT, activebackground=BORDER,
@@ -140,7 +161,7 @@ def build_filters(parent, kind, refresh):
 
     def reset():
         state['status'].set(STATUSES[kind][0])
-        state['sort'].set(SORTS[0])
+        state['sort'].set(CD_SORTS[0] if kind=='cds' else SORTS[0])
         set_setting(kind+'_filter_status', state['status'].get())
         set_setting(kind+'_filter_sort', state['sort'].get())
         for field, var in state['extra'].items():

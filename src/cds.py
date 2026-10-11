@@ -5,7 +5,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 from database import connection, get_setting, set_setting
-from theme import BG, PANEL, PANEL_ALT, TEXT, MUTED
+from theme import BG, PANEL, PANEL_ALT, TEXT, MUTED, BORDER
 from utils import format_time, parse_time
 from form_safety import SafeFormModal
 from cover_grid import CoverGrid
@@ -86,6 +86,7 @@ def delete_album(item_id, timer=None):
     if timer and timer.kind == 'cds' and timer.item_id == item_id:
         raise ValueError('Stop and save this album’s timer before deleting it.')
     with connection:
+        connection.execute('DELETE FROM cd_track_plays WHERE cd_id=?', (item_id,))
         connection.execute('DELETE FROM cd_tracks WHERE cd_id=?', (item_id,))
         connection.execute('DELETE FROM cd_sessions WHERE cd_id=?', (item_id,))
         connection.execute("DELETE FROM artwork_library WHERE category='cds' AND item_id=?", (item_id,))
@@ -99,13 +100,18 @@ def open_editor(parent, accent, on_saved, item_id=None, initial=None, initial_tr
 
 def open_cds(parent, accent, on_open_detail=None, restore_library=False):
     page=tk.Frame(parent,bg=BG);page.pack(fill='both',expand=True)
-    tk.Label(page,text='CDs & Albums',font=('Arial',20,'bold'),bg=BG,fg=TEXT).pack(anchor='w',padx=20,pady=16)
-    bar=tk.Frame(page,bg=PANEL_ALT,padx=10,pady=8);bar.pack(fill='x',padx=20)
-    tools=tk.Frame(page,bg=BG);tools.pack(fill='x',padx=20,pady=(8,0))
-    query=tk.StringVar();ownership=tk.StringVar(value='All');sort=tk.StringVar(value='Title');mode=tk.StringVar(value=get_setting('view_cds','Covers'))
-    tk.Entry(bar,textvariable=query,width=28,font=('Arial',11)).pack(side='left',padx=(0,8))
-    for variable,options in [(ownership,['All','Physical','Digital','Both','Not owned']),(sort,['Title','Artist','Year','Most played','Listening time'])]:
-        box=ttk.Combobox(bar,textvariable=variable,values=options,state='readonly',width=14,style='Filter.TCombobox');box.pack(side='left',padx=4);box.bind('<<ComboboxSelected>>',lambda e:refresh())
+    tk.Label(page,text='CDs & Albums Library',font=('Arial',20),bg=BG,fg=TEXT).pack(pady=15)
+    bar=tk.Frame(page,bg=PANEL,highlightbackground=BORDER,highlightthickness=1);bar.pack(fill='x',padx=20,pady=5)
+    query=tk.StringVar();mode=tk.StringVar(value=get_setting('view_cds','Covers'))
+    tk.Label(bar,text='Search:',font=('Arial',11),bg=PANEL,fg=MUTED).pack(side='left')
+    search_adapter=tk.Entry(bar,textvariable=query,width=35,font=('Arial',11),bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT,relief='flat',highlightthickness=0)
+    search_adapter.pack(side='left',padx=10)
+    tk.Button(bar,text='Search',command=lambda:refresh(),bg=PANEL_ALT,fg=TEXT,relief='flat').pack(side='left',padx=4)
+    tk.Button(bar,text='Show All',command=lambda:query.set(''),bg=PANEL_ALT,fg=TEXT,relief='flat').pack(side='left',padx=4)
+    from library_filters import build_filters
+    import library_filters
+    filters=build_filters(page,'cds',lambda:refresh())
+    ownership=filters['status'];sort=filters['sort']
     listing=tk.Frame(page,bg=BG)
     table=ttk.Treeview(listing,columns=('ID','Album','Artist','Year','Ownership','Plays','Listening'),show='headings')
     for name in table['columns']:table.heading(name,text=name);table.column(name,width=150)
@@ -115,17 +121,26 @@ def open_cds(parent, accent, on_open_detail=None, restore_library=False):
     grid=CoverGrid(page,'cds',lambda ident:detail(ident))
     summary=tk.Label(page,bg=BG,fg=MUTED);summary.pack(side='bottom',anchor='w',padx=20,pady=8)
     def refresh():
+        library_filters.refresh_choices('cds',filters)
         for child in table.get_children():table.delete(child)
         condition={'All':'1','Physical':'owned_physical=1','Digital':'owned_digital=1','Both':'owned_physical=1 AND owned_digital=1','Not owned':'owned_physical=0 AND owned_digital=0'}[ownership.get()]
         ordering={'Title':'name COLLATE NOCASE','Artist':'artist COLLATE NOCASE,name COLLATE NOCASE','Year':'release_year DESC,name COLLATE NOCASE','Most played':'play_count DESC,name COLLATE NOCASE','Listening time':'listening_time DESC,name COLLATE NOCASE'}[sort.get()]
-        cur=connection.execute('SELECT id,name,artist,release_year,owned_physical,owned_digital,play_count,listening_time FROM cds WHERE (name LIKE ? OR artist LIKE ? OR barcode LIKE ?) AND '+condition+' ORDER BY '+ordering,tuple('%'+query.get()+'%' for _ in range(3)))
+        from library_filters import where_clause
+        extra_query,params,_=where_clause('cds','',filters)
+        cur=connection.execute('SELECT id,name,artist,release_year,owned_physical,owned_digital,play_count,listening_time FROM cds WHERE (name LIKE ? OR artist LIKE ? OR barcode LIKE ?) AND '+condition+' AND '+extra_query+' ORDER BY '+ordering,tuple('%'+query.get()+'%' for _ in range(3))+tuple(params))
         rows=cur.fetchall()
-        for r in rows:table.insert('','end',iid=str(r[0]),values=(r[0],r[1],r[2] or '',r[3] or '', 'Both' if r[4] and r[5] else 'Physical' if r[4] else 'Digital' if r[5] else 'Not owned',r[6],format_time(r[7])))
-        summary.configure(text=f'{len(rows)} albums • {sum(r[6] for r in rows)} full album plays • {format_time(sum(r[7] for r in rows))} listened')
+        from cd_series import groups
+        listings=groups([r[0] for r in rows])
+        ids={g['id'] for g in listings}
+        for r in rows:
+            if r[0] not in ids:continue
+            table.insert('','end',iid=str(r[0]),values=(r[0],r[1],r[2] or '',r[3] or '', 'Both' if r[4] and r[5] else 'Physical' if r[4] else 'Digital' if r[5] else 'Not owned',r[6],format_time(r[7])))
+        summary.configure(text=f'{len(listings)} albums · {len(rows)} matching editions • {sum(r[6] for r in rows)} full album plays • {format_time(sum(r[7] for r in rows))} listened')
+        filters['count'].configure(text=f'{len(listings)} album listings · {len(rows)} matching editions. Open a listing to choose another edition.')
         if mode.get()=='Covers':grid.set_search('',filtered_ids=[r[0] for r in rows])
     def update_toggle():
         for label,button in toggle_buttons.items():
-            button.configure(bg=accent if label==mode.get() else PANEL_ALT,fg='white' if label==mode.get() else MUTED)
+            button.configure(bg=accent if label==mode.get() else PANEL_ALT,fg='white' if label==mode.get() else MUTED,activebackground=accent if label==mode.get() else BORDER,activeforeground='white',font=('Arial',10,'bold' if label==mode.get() else 'normal'))
     def switch(value):
         mode.set(value);set_setting('view_cds',value)
         update_toggle()
@@ -133,16 +148,19 @@ def open_cds(parent, accent, on_open_detail=None, restore_library=False):
         (grid if value=='Covers' else listing).pack(fill='both',expand=True,padx=12,pady=10);refresh()
     def edit(ident=None):
         open_editor(page,accent,lambda new_id:refresh(),ident)
-    tk.Button(tools,text='Add Album',command=lambda:edit(),bg=accent,fg='white',relief='flat',padx=14,pady=7).pack(side='right',padx=4)
+    add_button=tk.Button(bar,text='Add Album',command=lambda:edit(),bg=PANEL_ALT,fg=TEXT,relief='flat')
+    add_button.pack(side='right',padx=4)
     def edit_selected():
         selected=table.selection()
-        if selected:edit(int(selected[0]))
-    tk.Button(tools,text='Edit Metadata',command=edit_selected,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=12,pady=7).pack(side='right',padx=4)
-    tk.Label(tools,text='Double-click an album to open details.',bg=BG,fg=MUTED).pack(side='left')
+        if selected:
+            from collection_tools import choose_record
+            choose_record(page,'cds',[int(selected[0])],edit)
+    tk.Button(bar,text='Edit Album',command=edit_selected,bg=PANEL_ALT,fg=TEXT,relief='flat').pack(side='right',padx=4)
     toggle_buttons={}
+    view_tools=tk.Frame(bar,bg=PANEL);view_tools.pack(side='right',before=add_button,padx=(8,0))
     for label in ('List','Covers'):
-        button=tk.Button(bar,text=label,command=lambda value=label:switch(value),relief='flat',padx=12,pady=6)
-        button.pack(side='right',padx=4);toggle_buttons[label]=button
+        button=tk.Button(view_tools,text='☷  List' if label=='List' else '▦  Covers',command=lambda value=label:switch(value),relief='flat',bd=0,cursor='hand2',width=9 if label=='List' else 11)
+        button.pack(side='left',padx=2,pady=2);toggle_buttons[label]=button
         button._et_hover_installed=True
         button.bind('<Enter>',lambda e,b=button:b.configure(bg=accent,fg='white'))
         button.bind('<Leave>',lambda e:update_toggle())
@@ -154,13 +172,16 @@ def open_cds(parent, accent, on_open_detail=None, restore_library=False):
     def detail(ident):
         if on_open_detail:on_open_detail(ident)
         else:open_detail(page,ident,accent,refresh)
+    from collection_tools import install_tools
+    collection_tools_bar=install_tools(page,'cds',lambda:[int(r) for r in table.get_children()],lambda:[int(r) for r in table.selection()],refresh,grid)
+    from library_header import polish
+    polish(page,bar,collection_tools_bar,'cds',mode)
     switch(mode.get())
     page.after_idle(update_toggle)
     from library_return import install
-    search_adapter = next(w for w in bar.winfo_children() if isinstance(w,tk.Entry))
     from search_shortcuts import bind_enter
     bind_enter(search_adapter,refresh)
-    filter_adapter={'status':ownership,'sort':sort,'extra':{}}
+    filter_adapter={'status':ownership,'sort':sort,'extra':filters['extra']}
     on_open_detail=install(page,'cds',on_open_detail,grid,table,search_adapter,mode,switch,
                            lambda search='':refresh(),filter_adapter,restore=restore_library)
     return page

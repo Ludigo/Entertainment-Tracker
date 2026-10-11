@@ -770,8 +770,23 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         actions.pack(fill='x',pady=(6,0))
         menu=tk.Menu(actions,tearoff=False,bg=PANEL_ALT,fg=TEXT);actions.configure(menu=menu)
         menu.add_command(label='Log Full Album Play…',command=full_album_play)
+        def track_listen():
+            from track_listening import open_track_listening
+            open_track_listening(page,item_id,accent,lambda:show_detail(parent,kind,item_id,accent,on_back,on_edit),parent.winfo_toplevel().manual_timer)
+        menu.add_command(label='Log Track Listen…',command=track_listen)
         menu.add_command(label='Listening History…',command=history_cd)
         menu.add_command(label='Delete Album…',command=delete_cd)
+
+    if kind=='cds':
+        from cd_series import editions,edition_labels
+        edition_records=editions(item_id)
+        edition_box=ttk.Combobox(top,state='readonly',values=edition_labels(edition_records),width=40)
+        edition_box.pack(side='left',padx=10)
+        edition_box.current(next(i for i,r in enumerate(edition_records) if r['id']==int(item_id)))
+        def change_edition(event=None):
+            index=edition_box.current()
+            if index>=0 and edition_records[index]['id']!=int(item_id):show_detail(parent,kind,edition_records[index]['id'],accent,on_back,on_edit)
+        edition_box.bind('<<ComboboxSelected>>',change_edition)
 
     right_holder = tk.Frame(body, bg=BG, highlightthickness=0)
     if full_art:
@@ -913,7 +928,8 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         game_scrollbar.bind('<ButtonRelease-1>', lambda e: bar_state.update(drag_start=None))
         game_scrollbar.bind('<Configure>', lambda e: paint_scrollbar())
         cinematic.configure(yscrollcommand=scroll_changed)
-        art_state = {'background': None, 'logo': None, 'width': 0}
+        art_state = {'background': None, 'logo': None, 'width': 0, 'painting':False, 'offset':None, 'job':None}
+
         # Gallery images use natural aspect ratios, not two oversized fixed tiles.
         gallery_photos = []
         gallery_backdrop = {'photo': None, 'item': None}
@@ -995,6 +1011,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
             if art_state['width'] == width and event is not None and not force:
                 return
             art_state['width'] = width
+            art_state['painting']=True
             cinematic.delete('paint')
             cinematic.delete('fixed-background')
             # Determine page height from wrapped text rather than truncating it.
@@ -1053,33 +1070,22 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                 if crop[2] > crop[0] and crop[3] > crop[1]:
                     viewport.paste(base.crop(crop),
                                    (crop[0] - x, crop[1] - y))
+            # Compose smooth rounded surfaces over the same fixed artwork.
+            # Panel coordinates remain identical to the previous Games layout.
+            panels=[]
+            if split_panels:
+                half=width//2
+                panels.extend([(18,133,half-5,info_bottom),(half+5,133,width-18,info_bottom)])
+            else:panels.append((18,133,width-18,info_bottom))
+            panels.extend([(18,gallery_y-12,width-18,gallery_y+gallery_height-8),
+                           (18,description_y-12,width-18,description_y+description_height+20),
+                           (18,sessions_y-12,width-18,sessions_y+sessions_height)])
             art_state['background'] = ImageTk.PhotoImage(viewport)
             cinematic.create_image(0, cinematic.canvasy(0), anchor='nw',
                                    image=art_state['background'],
                                    tags='fixed-background')
-            if split_panels:
-                half = width // 2
-                for x0, x1 in ((18, half-5), (half+5, width-18)):
-                    cinematic.create_rectangle(x0, 133, x1, info_bottom,
-                                               fill='#242A31', stipple='gray50',
-                                               outline='', tags='paint')
-            else:
-                cinematic.create_rectangle(18, 133, width-18, info_bottom,
-                                           fill='#242A31', stipple='gray50',
-                                           outline='', tags='paint')
-            # Same glass overlay as the information, description and sessions.
-            # Restore the original translucent gallery panel (matching Description).
-            cinematic.create_rectangle(18, gallery_y-12, width-18,
-                                       gallery_y+gallery_height-8,
-                                       fill='#242A31', stipple='gray50',
-                                       outline='', tags='paint')
-            cinematic.create_rectangle(18, description_y-12, width-18,
-                                       description_y+description_height+20,
-                                       fill='#242A31', stipple='gray50',
-                                       outline='', tags='paint')
-            cinematic.create_rectangle(18, sessions_y-12, width-18, sessions_y+sessions_height,
-                                       fill='#242A31', stipple='gray50',
-                                       outline='', tags='paint')
+            from cinematic_panels import draw_panels
+            art_state['panels']=draw_panels(cinematic,panels)
             # Keep the logo within its own 118px-tall header area, above the
             # information panels. Preserve its native proportions and align it
             # consistently with the content margins at every window width.
@@ -1101,12 +1107,8 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                                       anchor='w', width=max(120, width-80),
                                       font=('Arial', 26, 'bold'), fill=TEXT, tags='paint')
             def draw_panel_heading(x0, x1, y, text):
-                cinematic.create_rectangle(x0+17, y, x0+21, y+18,
-                                           fill=accent, outline='', tags='paint')
                 cinematic.create_text(x0+33, y, text=text, anchor='nw',
-                                      fill='#FFFFFF', font=('Arial', 11, 'bold'), tags='paint')
-                cinematic.create_line(x0+17, y+27, x1-17, y+27,
-                                      fill='#515963', width=1, tags='paint')
+                                      fill=accent, font=('Arial',12,'bold'), tags='paint')
 
             def draw_panel_fields(entries, x0, x1, top, cols, step):
                 usable = max(80, x1-x0-34)
@@ -1116,7 +1118,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                     x = x0 + 17 + col * column_width
                     y = top + row * step
                     cinematic.create_text(x, y, text=label.upper(), anchor='nw',
-                                          font=('Arial', 9, 'bold'), fill='#C7CAD2', tags='paint')
+                                          font=('Arial', 8), fill='#C7CAD2', tags='paint')
                     display_value = str(value)
                     if label.upper() == 'RECORDED PLAYTIME':
                         try:
@@ -1161,12 +1163,12 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                             if rating.upper() in ('M', 'T', 'E', 'E10+', 'AO', 'RP'):
                                 display_value = 'ESRB ' + rating.upper()
                             cinematic.create_text(x, y+19, text=display_value, anchor='nw',
-                                width=max(55, column_width-12), font=('Arial', 12, 'bold'),
+                                width=max(55, column_width-12), font=('Arial', 11),
                                 fill='#FFFFFF', tags='paint')
                     else:
                         cinematic.create_text(x, y+19, text=display_value, anchor='nw',
                                                width=max(55, column_width-12),
-                                               font=('Arial', 12, 'bold'), fill='#FFFFFF', tags='paint')
+                                               font=('Arial', 11), fill='#FFFFFF', tags='paint')
 
             if split_panels:
                 half = width // 2
@@ -1180,15 +1182,9 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                 draw_panel_heading(18, width-18, activity_y, 'MY GAME ACTIVITY')
                 draw_panel_fields(activity_fields, 18, width-18,
                                   activity_y+43, 1, activity_step)
-            # Consistent cinematic section accents and subtle separators.
-            for section_top in (gallery_y+3, description_y, sessions_y):
-                cinematic.create_rectangle(28, section_top, 32, section_top+17,
-                                           fill=accent, outline='', tags='paint')
-                cinematic.create_line(28, section_top+25, width-28, section_top+25,
-                                      fill='#515963', width=1, tags='paint')
             cinematic.create_text(42, gallery_y+3, text='GAMEPLAY SCREENSHOTS',
-                                  anchor='nw', fill='#FFFFFF',
-                                  font=('Arial', 11, 'bold'), tags='paint')
+                                  anchor='nw', fill=accent,
+                                  font=('Arial', 12, 'bold'), tags='paint')
             gallery_photos.clear()
             gallery_strip.delete('all')
             gallery_backdrop['item'] = None
@@ -1241,7 +1237,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                     bottom = min(viewport.height, top + 175)
                     if right > 30 and bottom > top:
                         sample.paste(viewport.crop((30, top, right, bottom)), (0, 0))
-                glass = Image.blend(sample, Image.new('RGB', sample.size, '#242A31'), 0.65)
+                glass = Image.blend(sample,Image.new('RGB',sample.size,(13,16,22)),210/255)
                 # Only one viewport-sized backdrop is needed. Repositioning
                 # this canvas item in gallery_xscroll makes it visually fixed.
                 gallery_backdrop['photo'] = ImageTk.PhotoImage(glass)
@@ -1255,12 +1251,12 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                 if shot_x <= gallery_width:
                     cinematic.itemconfigure(gallery_scroll_window, state='hidden')
             cinematic.create_text(42, description_y, text='DESCRIPTION', anchor='nw',
-                                  fill='#FFFFFF', font=('Arial', 11, 'bold'), tags='paint')
+                                  fill=accent, font=('Arial', 12, 'bold'), tags='paint')
             cinematic.create_text(28, description_y+35, text='\n'.join(lines),
                                   anchor='nw', width=width-60, fill=TEXT,
                                   font=('Arial', 10), tags='paint')
             cinematic.create_text(42, sessions_y, text='RECENT PLAY SESSIONS',
-                                  anchor='nw', fill='#FFFFFF', font=('Arial', 11, 'bold'), tags='paint')
+                                  anchor='nw', fill=accent, font=('Arial', 12, 'bold'), tags='paint')
             cinematic.create_text(width-32, sessions_y+3, text='DURATION',
                                   anchor='ne', fill=MUTED, font=('Arial', 9, 'bold'), tags='paint')
             cursor.execute('SELECT started_at, duration_seconds FROM game_sessions '
@@ -1313,6 +1309,8 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
             pin_background()
             cinematic.tag_raise(gallery_window)
             cinematic.tag_raise(gallery_scroll_window)
+            art_state['offset']=cinematic.canvasy(0)
+            art_state['painting']=False
         def game_wheel(event):
             if getattr(event, 'num', None) == 4:
                 steps = -1

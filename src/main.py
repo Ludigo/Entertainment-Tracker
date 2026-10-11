@@ -386,6 +386,15 @@ def show_dashboard():
     finish_page()
 
 
+def show_statistics():
+    global current_page
+    current_page='Statistics'
+    clear_content()
+    from collection_statistics import open_statistics
+    open_statistics(content,accent)
+    finish_page()
+
+
 def _show_media_detail(kind, item_id, back_command, edit_command):
     global current_page
     current_page = "CDs" if kind=="cds" else kind.title()
@@ -1061,7 +1070,7 @@ tk.Label(sidebar, text="YOUR COLLECTION", font=("Arial", 8, "bold"),
 for name, command in [
     ("Dashboard", show_dashboard), ("Games", show_games), ("Movies", show_movies),
     ("Shows", show_shows), ("Books", show_books), ("CDs", show_cds), ("History", show_history),
-    ("Settings", show_settings)
+    ("Statistics", show_statistics), ("Settings", show_settings)
 ]:
     if name == "History":
         tk.Frame(sidebar, bg=BORDER, height=1).pack(fill="x", padx=20, pady=(14, 13))

@@ -54,6 +54,8 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     # -------------------------
 
     # Shared filters sit in the same position across all four libraries.
+    from library_summary import create_footer,summary_text
+    summary_footer=create_footer(books_window)
     filters = build_filters(books_window, "books", lambda: load_books(search_entry.get()))
 
     table_frame = tk.Frame(books_window)
@@ -152,6 +154,8 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     # -------------------------
 
     def load_books(search=""):
+        from library_filters import refresh_choices
+        refresh_choices("books",filters)
 
         for row in book_table.get_children():
             book_table.delete(row)
@@ -160,6 +164,7 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
         cursor.execute("SELECT * FROM books WHERE " + condition + " ORDER BY " + ordering, values)
         books = cursor.fetchall()
         filtered_ids = [row[0] for row in books]
+        summary_footer.configure(text=summary_text('books',filtered_ids))
         filters["count"].configure(text=f"Showing {len(books)} items")
 
         for book in books:
@@ -741,6 +746,13 @@ def open_books(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     book_table.bind("<Double-1>", on_table_double_click)
 
 
+    from collection_tools import install_tools
+    collection_tools_bar=install_tools(books_window,'books',
+                  lambda:[book_table.item(r,'values')[0] for r in book_table.get_children()],
+                  lambda:[book_table.item(r,'values')[0] for r in book_table.selection()],
+                  lambda:load_books(search_entry.get()),grid_view)
+    from library_header import polish
+    polish(books_window,search_frame,collection_tools_bar,'books',view_mode)
     from search_shortcuts import install as install_search_shortcuts
     install_search_shortcuts(books_window,search_entry,lambda:load_books(search_entry.get()))
 

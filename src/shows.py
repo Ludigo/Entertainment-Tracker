@@ -54,6 +54,8 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     # -------------------------
 
     # Shared filters sit in the same position across all four libraries.
+    from library_summary import create_footer,summary_text
+    summary_footer=create_footer(shows_window)
     filters = build_filters(shows_window, "shows", lambda: load_shows(search_entry.get()))
 
     table_frame = tk.Frame(shows_window)
@@ -156,6 +158,8 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     # -------------------------
 
     def load_shows(search=""):
+        from library_filters import refresh_choices
+        refresh_choices("shows",filters)
 
         for row in show_table.get_children():
             show_table.delete(row)
@@ -166,6 +170,7 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
         from show_series import groups, totals, matches_status
         listings = [g for g in groups([row[0] for row in matched]) if matches_status(g['members'],filters['status'].get())]
         filtered_ids = [group['id'] for group in listings]
+        summary_footer.configure(text=summary_text('shows',filtered_ids))
         filters['count'].configure(text=f"Showing {len(listings)} shows · {sum(len(g['members']) for g in listings)} saved season entries")
         for group in listings:
             members=group['members']; summary=totals(members); first=members[0]
@@ -673,6 +678,13 @@ def open_shows(parent, on_open_detail=None, initial_edit_id=None, restore_librar
 
     show_table.bind("<Double-1>", on_table_double_click)
 
+    from collection_tools import install_tools
+    collection_tools_bar=install_tools(shows_window,'shows',
+                  lambda:[show_table.item(r,'values')[0] for r in show_table.get_children()],
+                  lambda:[show_table.item(r,'values')[0] for r in show_table.selection()],
+                  lambda:load_shows(search_entry.get()),grid_view)
+    from library_header import polish
+    polish(shows_window,search_frame,collection_tools_bar,'shows',view_mode)
     from search_shortcuts import install as install_search_shortcuts
     install_search_shortcuts(shows_window,search_entry,lambda:load_shows(search_entry.get()))
 

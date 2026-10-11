@@ -118,6 +118,8 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
             control.pack_forget()
 
     # Shared filters sit in the same position across all four libraries.
+    from library_summary import create_footer,summary_text
+    summary_footer=create_footer(games_window)
     filters = build_filters(games_window, "games", lambda: load_games(search_entry.get()))
 
     table_frame = tk.Frame(games_window)
@@ -260,6 +262,8 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     # -------------------------
 
     def load_games(search=""):
+        from library_filters import refresh_choices
+        refresh_choices("games",filters)
 
         # Clear table
         for row in game_table.get_children():
@@ -295,6 +299,7 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
         cursor.execute("SELECT * FROM games WHERE " + condition + " ORDER BY " + ordering, values)
         games = cursor.fetchall()
         filtered_ids = [row[0] for row in games]
+        summary_footer.configure(text=summary_text('games',filtered_ids))
         filters['count'].configure(text=f"Showing {len(games)} items")
         cursor.execute("PRAGMA table_info(games)")
         field_names = [col[1] for col in cursor.fetchall()]
@@ -826,6 +831,13 @@ def open_games(parent, on_open_detail=None, initial_edit_id=None, restore_librar
     game_table.bind("<Double-1>", on_table_double_click)
 
 
+    from collection_tools import install_tools
+    collection_tools_bar=install_tools(games_window,'games',
+                  lambda:[game_table.item(r,'values')[0] for r in game_table.get_children()],
+                  lambda:[game_table.item(r,'values')[0] for r in game_table.selection()],
+                  lambda:load_games(search_entry.get()),grid_view)
+    from library_header import polish
+    polish(games_window,search_frame,collection_tools_bar,'games',view_mode)
     from search_shortcuts import install as install_search_shortcuts
     install_search_shortcuts(games_window,search_entry,lambda:load_games(search_entry.get()))
 

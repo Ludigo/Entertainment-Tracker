@@ -1,6 +1,6 @@
 # Entertainment Tracker v1.0
 
-This is the **beta development branch**. The latest Windows-tested and approved source is **Beta 1.64 — Unified Add & Collection Sections**. The next candidate is **Beta 1.65**. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
+This is the **beta development branch**. The latest Windows-tested and approved source is **Beta 1.67 — Collection Tools & Consistent Styling**. The next candidate is **Beta 1.68**. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
 
 A personal, non-commercial Windows desktop application built with Python.
 
@@ -54,3 +54,4 @@ The attached completed Phase 1 build was Windows-tested by the maintainer. Publi
 ## Change history
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes and beta change history.
+
