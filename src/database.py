@@ -101,6 +101,10 @@ def setup_database():
         if "background_path" not in {column[1] for column in cursor.fetchall()}:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN background_path TEXT")
 
+    for table in ('movies','shows','books','cds'):
+        if 'logo_path' not in {r[1] for r in connection.execute(f'PRAGMA table_info({table})')}:
+            connection.execute(f'ALTER TABLE {table} ADD COLUMN logo_path TEXT')
+
     cursor.execute("PRAGMA table_info(games)")
     game_columns = {column[1] for column in cursor.fetchall()}
     if "in_progress" not in game_columns:

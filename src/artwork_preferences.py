@@ -41,6 +41,12 @@ def install_artwork_guards():
             WHEN NEW.background_path IS NOT OLD.background_path AND
               (SELECT value FROM settings WHERE key='art_lock_{kind}_'||OLD.id||'_background_path')='1'
             BEGIN SELECT RAISE(ABORT, 'Artwork is locked. Unlock its role in Artwork Manager first.'); END''')
+    for kind in ('movies','shows','books','cds'):
+        connection.execute(f'''CREATE TRIGGER IF NOT EXISTS protect_{kind}_logo
+            BEFORE UPDATE OF logo_path ON {kind}
+            WHEN NEW.logo_path IS NOT OLD.logo_path AND
+              (SELECT value FROM settings WHERE key='art_lock_{kind}_'||OLD.id||'_logo_path')='1'
+            BEGIN SELECT RAISE(ABORT, 'Artwork is locked. Unlock its role in Artwork Manager first.'); END''')
     for role in ('logo_path', 'background_path'):
         connection.execute(f'''CREATE TRIGGER IF NOT EXISTS protect_game_{role}
             BEFORE UPDATE OF {role} ON game_detail_art
@@ -85,6 +91,8 @@ def relink_artwork(kind, item_id, old_path, filename):
     if kind in ('movies','shows','books','cds'):
         row=connection.execute(f'SELECT background_path FROM {kind} WHERE id=?',(item_id,)).fetchone()
         if row:assigned['background_path']=row[0]
+        row=connection.execute(f'SELECT logo_path FROM {kind} WHERE id=?',(item_id,)).fetchone()
+        if row:assigned['logo_path']=row[0]
     if kind=='games':
         row=connection.execute('SELECT logo_path,background_path FROM game_detail_art WHERE game_id=?',(item_id,)).fetchone()
         if row:assigned.update(zip(('logo_path','background_path'),row))

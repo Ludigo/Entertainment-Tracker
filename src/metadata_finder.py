@@ -113,7 +113,7 @@ def search_provider(kind, title, provider, tmdb_token=''):
             description=plain(x['show'].get('summary')), release_year=str(x['show'].get('premiered') or '')[:4],
             genre=', '.join(x['show'].get('genres') or []),
             network=((x['show'].get('network') or x['show'].get('webChannel') or {}).get('name','')),
-            cover=(x['show'].get('image') or {}).get('original') or '') for x in data]
+            cover=(x['show'].get('image') or {}).get('original') or '', tvmaze_id=x['show']['id']) for x in data]
     if provider == 'Apple iTunes':
         data = get_json(f'https://itunes.apple.com/search?term={q}&entity=movie&limit=15')
         return [result(provider, x.get('trackName',''), str(x.get('releaseDate',''))[:4],
@@ -213,21 +213,36 @@ def current_fields(kind, item_id):
     if row is None: raise ValueError('Entry not found')
     return dict(zip(columns,row))
 
-def save_fields(kind, item_id, item, selected):
+def save_fields(kind, item_id, item, selected, all_seasons=False, season_fields=False):
     if kind not in FIELDS: raise ValueError('Invalid category')
     existing=current_fields(kind,item_id)
+    allowed=dict(FIELDS[kind])
+    if season_fields and kind=='shows':
+        from show_metadata import FIELDS as season_metadata_fields
+        allowed=dict(season_metadata_fields)
     updates={}
     cover_file=None
     for field in selected:
-        if field not in dict(FIELDS[kind]) or field not in existing: continue
+        if field not in allowed or field not in existing: continue
         value=item.get('cover') if field=='cover_path' else item.get(field)
         if value is None or str(value).strip()=='': continue
+        if field=='runtime':
+            from utils import parse_time
+            value=parse_time(str(value))
+            if value<=0:continue
+        if field=='episode_count':
+            value=int(value)
+            if value < (existing.get('episode_reached') or 0):
+                raise ValueError('Provider episode count is below your recorded progress. Review this season manually.')
         if field in ('release_year','page_count'):
             try: value=int(value)
             except (ValueError,TypeError): continue
         if field=='cover_path':
             from artwork_preferences import require_unlocked
             require_unlocked(kind,item_id,'cover_path')
+            if all_seasons and kind=='shows':
+                from show_series import seasons
+                for r in seasons(item_id):require_unlocked(kind,r['id'],'cover_path')
             if not str(value).startswith('https://'): raise ValueError('Cover must use HTTPS')
             request=urllib.request.Request(value,headers=HEADERS)
             with urllib.request.urlopen(request,timeout=15) as response:
@@ -253,11 +268,14 @@ def save_fields(kind, item_id, item, selected):
     except Exception:
         if cover_file:cover_file.unlink(missing_ok=True)
         raise
+    if all_seasons and kind=="shows" and "cover_path" in updates:
+        from show_artwork import assign
+        assign(item_id,"cover_path",updates["cover_path"])
     return len(updates)
 
-def open_finder(parent, kind, item_id, title, accent, on_saved=None):
+def open_finder(parent, kind, item_id, title, accent, on_saved=None, all_seasons=False, bulk_seasons=False):
     win=tk.Toplevel(parent);polish_dialog(win)
-    win.title('Multi-Source Metadata Finder');win.geometry('1000x790');win.minsize(750,610)
+    win.title('Get All Show Metadata' if bulk_seasons else 'Multi-Source Metadata Finder');win.geometry('1000x790');win.minsize(750,610)
     win.configure(bg=BG);win.transient(parent.winfo_toplevel())
     previous_grab=win.grab_current()
     changes={'saved':False,'closed':False}
@@ -282,7 +300,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
     win.protocol('WM_DELETE_WINDOW',close_finder)
     win.bind('<Escape>',close_finder)
     win.grab_set()
-    tk.Label(win,text='Multi-Source Metadata Finder',bg=BG,fg=TEXT,font=('Arial',19,'bold')).pack(anchor='w',padx=20,pady=(16,8))
+    tk.Label(win,text='Get All Show Metadata' if bulk_seasons else 'Multi-Source Metadata Finder',bg=BG,fg=TEXT,font=('Arial',19,'bold')).pack(anchor='w',padx=20,pady=(16,8))
     toolbar=tk.Frame(win,bg=BG);toolbar.pack(fill='x',padx=20)
     query=tk.StringVar(value=title)
     token=tk.StringVar(value=get_setting('tmdb_token',''))
@@ -306,7 +324,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
     sourcebar=tk.Frame(win,bg=BG);sourcebar.pack(fill='x',padx=20)
     tk.Label(sourcebar,text='Source:',bg=BG,fg=TEXT).pack(side='left')
     default_source='TMDB' if kind in ('movies','shows') and token.get().strip() else providers(kind)[0]
-    source=tk.StringVar(value=default_source);picker=ttk.Combobox(sourcebar,textvariable=source,values=providers(kind),state='readonly',width=18)
+    source=tk.StringVar(value=default_source);picker=ttk.Combobox(sourcebar,textvariable=source,values=['TVmaze','TMDB'] if bulk_seasons else providers(kind),state='readonly',width=18)
     picker.pack(side='left',padx=8)
     # A dark readonly combobox can appear disabled on some Windows themes.
     style=ttk.Style(win)
@@ -314,7 +332,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
                     fieldbackground=PANEL_ALT, background=PANEL_ALT,
                     foreground=TEXT, arrowcolor=TEXT)
     picker.configure(style='MetadataSource.TCombobox')
-    picker.current(providers(kind).index(default_source))
+    picker.current((['TVmaze','TMDB'] if bulk_seasons else providers(kind)).index(default_source))
     if kind in ('movies','shows'):
         tk.Label(sourcebar,text='TMDB token (saved automatically):',bg=BG,fg=MUTED).pack(side='left',padx=(12,5))
         entry=tk.Entry(sourcebar,textvariable=token,show='•',bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT,relief='flat')
@@ -354,7 +372,31 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
         except queue.Empty:pass
         pending['job']=win.after(80,poll)
     pending['job']=win.after(80,poll)
+    def show_bulk_fields(item):
+        for widget in inner.winfo_children():widget.destroy()
+        checks.clear()
+        from show_metadata import FIELDS as season_fields
+        from utils import format_time
+        for entry in item.get('_season_results',[]):
+            try:existing=current_fields('shows',entry['id'])
+            except ValueError:continue
+            tk.Label(inner,text=f"Season {entry['season']} · entry #{entry['id']}",bg=PANEL,fg=accent,font=('Arial',12,'bold')).pack(anchor='w',padx=10,pady=10)
+            if entry['warning']:
+                tk.Label(inner,text=entry['warning'],bg=PANEL,fg=MUTED,wraplength=820,justify='left').pack(anchor='w',padx=10)
+            if not entry['values']:continue
+            for key,label in season_fields:
+                incoming=entry['values'].get('cover' if key=='cover_path' else key)
+                if incoming in (None,''):continue
+                old=existing.get(key)
+                variable=tk.BooleanVar(value=old in (None,'') or key in ('runtime','episode_count') and old==0)
+                checks[(entry['id'],key)]=variable
+                row=tk.Frame(inner,bg=PANEL);row.pack(fill='x',padx=10,pady=4)
+                tk.Checkbutton(row,text=label,variable=variable,bg=PANEL,fg=TEXT,selectcolor=PANEL_ALT,activebackground=PANEL).pack(anchor='w')
+                if key=='runtime' and old is not None:old=format_time(old)
+                tk.Label(row,text=f"Current: {str(old if old is not None else '(empty)')[:300]}\nNew: {str(incoming)[:500]}",bg=PANEL,fg=TEXT,wraplength=820,justify='left').pack(anchor='w',padx=23)
+
     def show_fields(item):
+        if bulk_seasons:return show_bulk_fields(item)
         for widget in inner.winfo_children():widget.destroy()
         checks.clear()
         existing=current_fields(kind,item_id)
@@ -406,7 +448,15 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
             status.set((value or {}).get('artwork_warning') or 'Review current vs new values. Only checked fields will be imported; open Artwork Collection for all supplied images.')
         season=current_fields(kind,item_id).get('season') if kind=='shows' else None
         auth=token.get();snapshot=dict(items[index])
-        background(lambda:enrich_with_artwork(kind,snapshot,auth,season),done)
+        if bulk_seasons:
+            from show_series import seasons
+            records=seasons(item_id)
+            def load_all():
+                from show_metadata import load
+                snapshot['_season_results']=load(snapshot,records,auth)
+                return snapshot
+            background(load_all,done)
+        else:background(lambda:enrich_with_artwork(kind,snapshot,auth,season),done)
     results.bind('<<TreeviewSelect>>',chosen)
     def apply():
         if busy['value'] or loading['value']:status.set('Wait for the selected result to finish loading.');return
@@ -415,7 +465,26 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
         chosen_fields=[field for field,var in checks.items() if var.get()]
         if not chosen_fields:messagebox.showinfo('No Changes','Tick at least one field to import.',parent=win);return
         if not messagebox.askyesno('Confirm Import',f'Import {len(chosen_fields)} selected field(s) from {items[index]["source"]}?\nExisting checked fields will be replaced.',parent=win):return
-        try:count=save_fields(kind,item_id,items[index],chosen_fields)
+        if bulk_seasons:
+            from show_series import seasons
+            current={r['id']:r for r in seasons(item_id)}
+            saved=0;errors=[]
+            for entry in items[index].get('_season_results',[]):
+                fields=[key for ident,key in chosen_fields if ident==entry['id']]
+                if not fields or not entry['values']:continue
+                if entry['id'] not in current or current[entry['id']]['season']!=entry['season']:
+                    errors.append(f"Season {entry['season']}: entry changed or removed; skipped.");continue
+                try:
+                    count=save_fields('shows',entry['id'],entry['values'],fields,season_fields=True)
+                    if count:saved+=1;changes['saved']=True
+                except Exception as exc:errors.append(f"Season {entry['season']}: {exc}")
+            from show_artwork import share
+            share(item_id)
+            show_fields(items[index])
+            status.set(f'{saved} season entries updated.' + (' Some entries failed; see details.' if errors else ''))
+            if errors:messagebox.showwarning('Import Results','\n'.join(errors),parent=win)
+            return
+        try:count=save_fields(kind,item_id,items[index],chosen_fields,all_seasons=all_seasons)
         except Exception as exc:messagebox.showerror('Import Failed',str(exc),parent=win);return
         if count:
             changes['saved']=True
@@ -431,13 +500,18 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None):
         index=selected['index']
         if index is None:messagebox.showinfo('Select Result','Choose a result first.',parent=win);return
         from artwork_manager import open_manager,options
-        item=items[index]
+        item=dict(items[index])
+        if bulk_seasons:
+            item['artwork_options']=[option for entry in item.get('_season_results',[]) if entry['values'] for option in entry['values'].get('artwork_options',[])]
         def artwork_saved():
             changes['saved']=True
             current=selected['index']
             if current is not None:show_fields(items[current])
             status.set('Artwork changes saved. Continue importing metadata or close when finished.')
-        open_manager(win,kind,item_id,item['title'],accent,results=options(kind,item),on_saved=artwork_saved)
+        open_manager(win,kind,item_id,item['title'],accent,results=options(kind,item),on_saved=artwork_saved,all_seasons=all_seasons)
+    if bulk_seasons:
+        tk.Button(bottom,text='Select All Metadata',command=lambda:[var.set(True) for var in checks.values()],
+                  bg=PANEL_ALT,fg=TEXT,relief='flat',padx=10,pady=8).pack(side='left',padx=(0,8))
     tk.Button(bottom,text='Artwork Collection…',command=artwork,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=10,pady=8).pack(side='left')
     tk.Button(bottom,text='Close',command=close_finder,bg=PANEL_ALT,fg=TEXT,relief='flat',padx=16,pady=8).pack(side='right')
     tk.Button(bottom,text='Import Checked Fields',command=apply,bg=accent,fg='white',relief='flat',padx=14,pady=8).pack(side='right',padx=10)

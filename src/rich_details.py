@@ -197,7 +197,7 @@ def open_rich_editor(parent, kind, item_id, accent, refresh):
     buttons.pack(fill='x')
     body = tk.Frame(window, bg=PANEL)
     body.pack(fill='both', expand=True, padx=20)
-    canvas = tk.Canvas(body, bg=PANEL, highlightthickness=0)
+    canvas = tk.Canvas(body, bg=PANEL, highlightthickness=0, yscrollincrement=24)
     bar = ttk.Scrollbar(body, orient='vertical', command=canvas.yview)
     canvas.configure(yscrollcommand=bar.set)
     bar.pack(side='right', fill='y')
@@ -260,7 +260,7 @@ def open_rich_editor(parent, kind, item_id, accent, refresh):
         window.bind_class(wheel_tag, event, wheel)
     def wheel_tags(widget):
         tags = widget.bindtags()
-        widget.bindtags((tags[0], wheel_tag) + tags[1:])
+        widget.bindtags((wheel_tag,) + tuple(tag for tag in tags if tag != wheel_tag))
         for child in widget.winfo_children():
             wheel_tags(child)
     wheel_tags(fields)

@@ -213,11 +213,16 @@ def _field(parent, label, value, accent):
              wraplength=520, justify="left").pack(anchor="w", pady=(2, 0))
 
 
-def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
+def show_detail(parent, kind, item_id, accent, on_back, on_edit=None, show_summary=None):
     """Render a media detail page inside the existing main content area."""
     # Replace the previous in-app page, including its calendar, before drawing details.
     for child in parent.winfo_children():
         child.destroy()
+
+    if show_summary is None:
+        show_summary = kind == "shows"
+    def refresh_detail():
+        show_detail(parent, kind, item_id, accent, on_back, on_edit, show_summary)
 
     table = kind
     cursor.execute(f"SELECT * FROM {table} WHERE id = ?", (item_id,))
@@ -236,6 +241,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         from show_series import seasons, season_labels
         series_records=seasons(item_id)
         record['_series_records']=series_records
+        record['_show_summary']=show_summary
 
     if kind == "games":
         title = item[1]
@@ -385,18 +391,20 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
     tk.Button(top, text="← Back", command=on_back, bg=PANEL_ALT,
               **header_button_style).pack(side="left")
     if kind=='shows':
-        season_box=ttk.Combobox(top,state='readonly',values=season_labels(series_records),width=23)
+        season_box=ttk.Combobox(top,state='readonly',values=['Show summary'] + season_labels(series_records),width=23)
         season_box.pack(side='left',padx=10)
-        season_box.current(next(i for i,r in enumerate(series_records) if r['id']==int(item_id)))
+        season_box.current(0 if show_summary else 1 + next(i for i,r in enumerate(series_records) if r['id']==int(item_id)))
         def change_season(event=None):
             index=season_box.current()
-            if index>=0 and series_records[index]['id']!=int(item_id):
-                show_detail(parent,kind,series_records[index]['id'],accent,on_back,on_edit)
+            if index == 0:
+                show_detail(parent,kind,item_id,accent,on_back,on_edit,True)
+            elif index > 0:
+                show_detail(parent,kind,series_records[index-1]['id'],accent,on_back,on_edit,False)
         season_box.bind('<<ComboboxSelected>>',change_season)
         def add_season():
             from add_media_metadata import open_add_media
             open_add_media(page,'shows',accent,
-                lambda:show_detail(parent,kind,item_id,accent,on_back,on_edit),
+                refresh_detail,
                 initial_values={key:record.get(key) for key in ('name','network','type','genre') if record.get(key)})
         def delete_season():
             label='Specials' if record.get('season')==0 else 'Season '+str(record.get('season'))
@@ -410,7 +418,8 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         season_menu=tk.Menu(season_actions,tearoff=False,bg=PANEL_ALT,fg=TEXT)
         season_actions.configure(menu=season_menu)
         season_menu.add_command(label='Add Season…',command=add_season)
-        season_menu.add_command(label='Delete This Season…',command=delete_season)
+        season_menu.add_command(label='Delete This Season…',command=delete_season,
+                                state='disabled' if show_summary else 'normal')
     if full_art:
         # The toolbar uses a crop of the fixed page image; buttons stay interactive.
         toolbar_art = {'image': None}
@@ -528,6 +537,9 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
                  bg=PANEL_ALT, fg=MUTED, justify="center").pack(expand=True)
 
     def choose_cover():
+        if kind=="shows" and show_summary:
+            from artwork_manager import open_manager
+            return open_manager(page,kind,item_id,title,accent,on_saved=refresh_detail,all_seasons=True)
         from artwork_preferences import require_unlocked
         try:require_unlocked(kind,item_id,'cover_path')
         except ValueError as exc:
@@ -547,6 +559,12 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
             messagebox.showerror("Cover Art", f"The cover could not be saved.\n\n{exc}")
 
     def remove_cover():
+        if kind=="shows" and show_summary:
+            from show_artwork import assign
+            if not messagebox.askyesno("Remove Show Cover", "Remove the cover from every season?"):return
+            try:assign(item_id,"cover_path",None);refresh_detail()
+            except ValueError as exc:messagebox.showwarning("Artwork",str(exc))
+            return
         from artwork_preferences import require_unlocked
         try:require_unlocked(kind,item_id,'cover_path')
         except ValueError as exc:
@@ -569,9 +587,9 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
 
     render_cover()
     from artwork_manager import open_manager
-    tk.Button(top, text="Artwork Collection", command=lambda: open_manager(
+    tk.Button(top, text=("Show Artwork Collection" if kind=="shows" else "Artwork Collection"), command=lambda: open_manager(
         page, kind, item_id, title, accent,
-        on_saved=lambda: show_detail(parent, kind, item_id, accent, on_back, on_edit)),
+        on_saved=refresh_detail, all_seasons=(kind=='shows' and show_summary)),
         bg=PANEL_ALT, **header_button_style).pack(side="right", padx=(6, 0))
     # Tk's activebackground is not a reliable hover treatment on Windows.
     # Explicit pointer events keep the header consistent across themes.
@@ -597,11 +615,16 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
             from cd_editor import open_editor
             editor=open_editor(parent,accent,lambda _:refresh(),ident)
             editor.after_idle(editor._cd_editor.find)
-        else:standard_finder(parent,category,ident,title,accent,refresh)
+        else:standard_finder(parent,category,ident,title,accent,refresh,
+                             all_seasons=(category=="shows" and show_summary))
     tk.Button(left, text="Find Album Metadata & Artwork" if kind=="cds" else "Find Art & Description Online",
               command=lambda: open_finder(page, kind, item_id, title, accent,
-                  lambda: show_detail(parent, kind, item_id, accent, on_back, on_edit)),
+                  refresh_detail),
               bg=accent, fg="white", relief="flat", padx=12, pady=10).pack(fill="x", pady=(4, 4))
+    if kind=='shows' and show_summary:
+        tk.Button(left,text='Get All Metadata',command=lambda:standard_finder(
+            page,'shows',item_id,title,accent,refresh_detail,all_seasons=True,bulk_seasons=True),
+            bg=accent,fg='white',relief='flat',padx=12,pady=10).pack(fill='x',pady=(0,4))
     if kind not in ('games','cds'):
         tk.Button(left, text="Choose / Change Cover", command=choose_cover, bg=accent, fg="white",
                   activebackground=accent, activeforeground="white", relief="flat", bd=0,
@@ -613,9 +636,13 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
 
     def edit_metadata():
         from rich_details import open_rich_editor
-        open_rich_editor(page, kind, item_id, accent,
-                         lambda: show_detail(parent, kind, item_id, accent, on_back, on_edit))
-    tk.Button(left, text='Edit Album Metadata' if kind=='cds' else 'Edit ' + kind[:-1].title() + ' Metadata', command=edit_metadata,
+        if kind == 'shows' and show_summary:
+            from show_series import choose_season
+            choose_season(page,item_id,accent,lambda ident:open_rich_editor(
+                page,kind,ident,accent,refresh_detail))
+        else:
+            open_rich_editor(page, kind, item_id, accent, refresh_detail)
+    tk.Button(left, text='Edit Season Metadata' if kind=='shows' and show_summary else 'Edit Album Metadata' if kind=='cds' else 'Edit ' + kind[:-1].title() + ' Metadata', command=edit_metadata,
               bg=PANEL_ALT, fg=TEXT, relief='flat', padx=14, pady=10,
               cursor='hand2').pack(fill='x', pady=(0, 4))
 
@@ -772,7 +799,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None):
         menu.add_command(label='Log Full Album Play…',command=full_album_play)
         def track_listen():
             from track_listening import open_track_listening
-            open_track_listening(page,item_id,accent,lambda:show_detail(parent,kind,item_id,accent,on_back,on_edit),parent.winfo_toplevel().manual_timer)
+            open_track_listening(page,item_id,accent,refresh_detail,parent.winfo_toplevel().manual_timer)
         menu.add_command(label='Log Track Listen…',command=track_listen)
         menu.add_command(label='Listening History…',command=history_cd)
         menu.add_command(label='Delete Album…',command=delete_cd)

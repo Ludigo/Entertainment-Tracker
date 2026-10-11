@@ -90,6 +90,9 @@ def artwork_file_details(entry):
 
 def store(kind, item_id, raw, w, h, ext, source, set_cover=True):
     if kind not in CATEGORIES: raise ValueError('Unknown category')
+    if kind=='shows':
+        from show_artwork import share
+        share(item_id)
     if set_cover:require_unlocked(kind,item_id,'cover_path')
     # Exact copies within this item's collection reuse their existing local file.
     digest = artwork_digest(raw)
@@ -121,9 +124,13 @@ def store(kind, item_id, raw, w, h, ext, source, set_cover=True):
     except Exception:
         target.unlink(missing_ok=True)
         raise
+    if kind=='shows':share(item_id)
     return rel
 
 def select_saved(kind, item_id, path):
+    if kind=='shows':
+        from show_artwork import share
+        share(item_id)
     require_unlocked(kind,item_id,'cover_path')
     if not connection.execute('SELECT 1 FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',
                               (kind,item_id,path)).fetchone():
@@ -131,11 +138,33 @@ def select_saved(kind, item_id, path):
     with connection:
         connection.execute(f'UPDATE {kind} SET cover_path=? WHERE id=?',(path,item_id))
 
-def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=None):
+def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=None, all_seasons=False):
+    base_store=store
+    base_select=select_saved
+    def select_art(kind,ident,path):
+        if all_seasons and kind=='shows':
+            from show_artwork import assign
+            assign(ident,'cover_path',path)
+        else:base_select(kind,ident,path)
+    def store_art(kind,ident,raw,w,h,ext,source,set_cover=True):
+        if all_seasons and kind=='shows' and set_cover:
+            from show_series import seasons
+            for r in seasons(ident):require_unlocked(kind,r['id'],'cover_path')
+            path=base_store(kind,ident,raw,w,h,ext,source,set_cover=False)
+            select_art(kind,ident,path)
+            return path
+        return base_store(kind,ident,raw,w,h,ext,source,set_cover)
+    def apply_background(ident,path,category):
+        if all_seasons and category=='shows':
+            from show_artwork import assign
+            assign(ident,'background_path',path)
+        else:
+            from movie_cinematic import set_background
+            set_background(ident,path,category)
     if Image is None:
         messagebox.showerror('Artwork Manager', 'Install Pillow first: pip install pillow',parent=parent)
         return
-    win=tk.Toplevel(parent); win.title('Artwork Manager — '+title)
+    win=tk.Toplevel(parent); win.title(('Show Artwork — all seasons — ' if all_seasons else 'Artwork Manager — ')+title)
     polish_dialog(win)
     win.geometry(artwork_window_size(get_setting('artwork_window_size','920x710'),
                                      win.winfo_screenwidth(),win.winfo_screenheight()))
@@ -234,6 +263,8 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         if kind in ('movies','shows','books','cds'):
             from movie_cinematic import background_path
             assigned['Current Background']=background_path(item_id,kind)
+            row=connection.execute(f'SELECT logo_path FROM {kind} WHERE id=?',(item_id,)).fetchone()
+            assigned['Current Logo']=row[0] if row else None
         return assigned
     def assignment_labels(entry,assigned):
         paths={entry.get('path'),entry.get('origin_path')} - {None}
@@ -359,6 +390,9 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
                             origin_path=origin_path,shape=classify(w,h)))
         return len(entries)-1,True
     def load_saved():
+        if kind=='shows':
+            from show_artwork import share
+            share(item_id)
         entries.clear();selected['index']=None;selected['indices'].clear()
         rows=connection.execute('SELECT image_path,width,height,source FROM artwork_library WHERE category=? AND item_id=? ORDER BY id DESC',(kind,item_id)).fetchall()
         seen=set()
@@ -482,9 +516,9 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             messagebox.showinfo('Missing Artwork','Relink this image first.',parent=win);return
         try:
             if e['path']:
-                if make_cover:select_saved(kind,item_id,e['path'])
+                if make_cover:select_art(kind,item_id,e['path'])
             else:
-                saved_path=store(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],make_cover)
+                saved_path=store_art(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],make_cover)
                 e['path']=saved_path
             win._artwork_changed=True
             display()
@@ -506,7 +540,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
                     already_saved+=1
                     continue
                 # Batch collection saves never replace assigned artwork.
-                e['path']=store(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],set_cover=False)
+                e['path']=store_art(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],set_cover=False)
                 win._artwork_changed=True
                 saved+=1
         except Exception as exc:
@@ -521,7 +555,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         display()
         info.set(f'{saved} saved · {already_saved} already local · {missing} missing skipped. Continue choosing artwork or close when finished.')
     def set_role(role):
-        if kind != 'games' and not (kind in ('movies','shows','books','cds') and role=='background_path'): return
+        if kind != 'games' and not (kind in ('movies','shows','books','cds') and role in ('background_path','logo_path')): return
         if len(selected['indices'])>1:
             messagebox.showinfo('Choose One Image','Click one image to assign its artwork role.',parent=win)
             return
@@ -533,11 +567,18 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             e=entries[i]
             if e.get('missing'):raise ValueError('Relink this missing image first.')
             if not e['path']:
-                e['path']=store(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],set_cover=False)
+                e['path']=store_art(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],set_cover=False)
                 win._artwork_changed=True
             if kind in ('movies','shows','books','cds'):
                 from movie_cinematic import set_background
-                set_background(item_id,e['path'],kind)
+                if role=='logo_path':
+                    if all_seasons and kind=='shows':
+                        from show_artwork import assign
+                        assign(item_id,role,e['path'])
+                    else:
+                        from movie_cinematic import set_logo
+                        set_logo(item_id,e['path'],kind)
+                else:apply_background(item_id,e['path'],kind)
             else:
                 from details import _set_game_art
                 _set_game_art(item_id,role,e['path'])
@@ -568,20 +609,27 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         if kind in ('movies','shows','books','cds'):
             from movie_cinematic import background_path
             if path==background_path(item_id,kind):refs.append('background')
+            row=connection.execute(f'SELECT logo_path FROM {kind} WHERE id=?',(item_id,)).fetchone()
+            if row and path==row[0]:refs.append('logo')
         try:
             for role,label in [('cover_path','cover'),('logo_path','logo'),('background_path','background')]:
                 if label in refs:require_unlocked(kind,item_id,role)
         except ValueError as exc:
             messagebox.showwarning('Artwork Locked',str(exc),parent=win);return
         note=('This image is currently assigned as '+', '.join(refs)+'. Its assignment will be cleared.\n\n') if refs else ''
-        if not messagebox.askyesno('Delete Saved Artwork',note+'Permanently delete this saved image from the collection?',parent=win):return
+        if not messagebox.askyesno('Delete Saved Artwork',note+('Remove this shared image from every season of this show?' if kind=='shows' else 'Permanently delete this saved image from the collection?'),parent=win):return
         try:
+            if kind=='shows':
+                from show_artwork import remove
+                remove(item_id,path)
             with connection:
                 connection.execute('DELETE FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',(kind,item_id,path))
                 if 'cover' in refs:
                     connection.execute(f'UPDATE {kind} SET cover_path=NULL WHERE id=? AND cover_path=?',(item_id,path))
                 if kind in ('movies','shows','books','cds') and 'background' in refs:
                     connection.execute(f'UPDATE {kind} SET background_path=NULL WHERE id=? AND background_path=?',(item_id,path))
+                if kind in ('movies','shows','books','cds') and 'logo' in refs:
+                    connection.execute(f'UPDATE {kind} SET logo_path=NULL WHERE id=? AND logo_path=?',(item_id,path))
                 if kind=='games':
                     from details import _set_game_art
                     if 'logo' in refs:_set_game_art(item_id,'logo_path',None)
@@ -601,19 +649,29 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             require_unlocked(kind,item_id,role)
             label={'cover_path':'Current Cover','logo_path':'Current Logo',
                    'background_path':'Current Background'}.get(role)
-            if label is None or (kind!='games' and role!='cover_path' and not (kind in ('movies','shows','books','cds') and role=='background_path')):return
+            if label is None or (kind!='games' and role!='cover_path' and not (kind in ('movies','shows','books','cds') and role in ('background_path','logo_path'))):return
             path=current_assignments().get(label)
             # Keep older assigned images available in the collection after clearing.
             for e in entries:
                 if path and e.get('origin_path')==path and not e['path'] and not e.get('missing'):
-                    e['path']=store(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],set_cover=False)
+                    e['path']=store_art(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],set_cover=False)
                     win._artwork_changed=True
             if role=='cover_path':
                 with connection:
-                    connection.execute(f'UPDATE {kind} SET cover_path=NULL WHERE id=?',(item_id,))
-            elif kind in ('movies','shows','books','cds') and role=='background_path':
+                    if all_seasons and kind=='shows':
+                        from show_artwork import assign
+                        assign(item_id,'cover_path',None)
+                    else:connection.execute(f'UPDATE {kind} SET cover_path=NULL WHERE id=?',(item_id,))
+            elif kind in ('movies','shows','books','cds') and role in ('background_path','logo_path'):
                 from movie_cinematic import set_background
-                set_background(item_id,None,kind)
+                if role=='logo_path':
+                    if all_seasons and kind=='shows':
+                        from show_artwork import assign
+                        assign(item_id,role,None)
+                    else:
+                        from movie_cinematic import set_logo
+                        set_logo(item_id,None,kind)
+                else:apply_background(item_id,None,kind)
             elif kind=='games' and role in ('logo_path','background_path'):
                 from details import _set_game_art
                 _set_game_art(item_id,role,None)
@@ -642,7 +700,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
             e=entries[i];path=e.get('path') or e.get('origin_path')
             if not path:
                 if e.get('missing'):raise ValueError('Relink this image first.')
-                path=store(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],set_cover=False)
+                path=store_art(kind,item_id,e['raw'],e['w'],e['h'],e['ext'],e['source'],set_cover=False)
                 e['path']=path;win._artwork_changed=True
             value=not is_favourite(kind,item_id,path)
             set_favourite(kind,item_id,path,value)
@@ -684,6 +742,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         for label,role in [('Set as Logo','logo_path'),('Set as Background','background_path')]:
             assign_menu.add_command(label=label,command=lambda r=role:set_role(r))
     if kind in ('movies','shows','books','cds'):
+        assign_menu.add_command(label='Set as Logo',command=lambda:set_role('logo_path'))
         assign_menu.add_command(label='Set as Background',command=lambda:set_role('background_path'))
     clear_menu=tk.Menu(assign_menu,tearoff=False,bg=PANEL_ALT,fg=TEXT,
                        activebackground=accent,activeforeground='white')
@@ -692,10 +751,11 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         for label,role in [('Clear Logo','logo_path'),('Clear Background','background_path')]:
             clear_menu.add_command(label=label,command=lambda r=role:clear_assignment(r))
     if kind in ('movies','shows','books','cds'):
+        clear_menu.add_command(label='Clear Logo',command=lambda:clear_assignment('logo_path'))
         clear_menu.add_command(label='Clear Background',command=lambda:clear_assignment('background_path'))
     protection_menu=tk.Menu(assign_menu,tearoff=False,bg=PANEL_ALT,fg=TEXT,
                             activebackground=accent,activeforeground='white')
-    for label,role in [('Cover','cover_path')]+([('Logo','logo_path'),('Background','background_path')] if kind=='games' else [('Background','background_path')] if kind in ('movies','shows','books','cds') else []):
+    for label,role in [('Cover','cover_path')]+([('Logo','logo_path'),('Background','background_path')] if kind=='games' else [('Logo','logo_path'),('Background','background_path')] if kind in ('movies','shows','books','cds') else []):
         protection_menu.add_command(label='Lock / Unlock '+label,command=lambda r=role:toggle_protection(r))
     assign_menu.add_cascade(label='Protection',menu=protection_menu)
     assign_menu.add_separator()

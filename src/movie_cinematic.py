@@ -21,6 +21,9 @@ def background_path(item_id, kind='movies'):
 
 def set_background(item_id, path, kind='movies'):
     if kind not in ('movies','shows','books','cds'):raise ValueError('Invalid background category')
+    if kind=='shows':
+        from show_artwork import share
+        share(item_id)
     require_unlocked(kind, item_id, 'background_path')
     if path and not connection.execute(
             'SELECT 1 FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',
@@ -29,6 +32,19 @@ def set_background(item_id, path, kind='movies'):
     with connection:
         changed = connection.execute(f'UPDATE {kind} SET background_path=? WHERE id=?', (path, item_id))
         if changed.rowcount != 1:
+            raise ValueError('This item is no longer in the collection.')
+
+
+def set_logo(item_id,path,kind):
+    if kind not in ('movies','shows','books','cds'):raise ValueError('Invalid category')
+    require_unlocked(kind,item_id,'logo_path')
+    if kind=='shows':
+        from show_artwork import share
+        share(item_id)
+    if path and not connection.execute('SELECT 1 FROM artwork_library WHERE category=? AND item_id=? AND image_path=?',(kind,item_id,path)).fetchone():
+        raise ValueError('Choose a saved image from this artwork collection.')
+    with connection:
+        if connection.execute(f'UPDATE {kind} SET logo_path=? WHERE id=?',(path,item_id)).rowcount!=1:
             raise ValueError('This item is no longer in the collection.')
 
 
@@ -80,7 +96,7 @@ def render(parent, record, accent, page=None, page_state=None, *,
     fonts = {name: tkfont.Font(root=canvas, family='Arial', size=size, weight=weight)
              for name, size, weight in [('title', 25, 'bold'), ('heading', 12, 'bold'),
                                        ('label', 8, 'bold'), ('value', 11, 'normal')]}
-    state = {'photo': None, 'job': None, 'painting': False, 'offset':None}
+    state = {'logo':None,'photo': None, 'job': None, 'painting': False, 'offset':None}
 
     def request_paint(event=None):
         if state['job'] is None and canvas.winfo_exists():
@@ -126,7 +142,22 @@ def render(parent, record, accent, page=None, page_state=None, *,
             return len(value.split('\n')) * font.metrics('linespace')
 
         y = 22
-        y += text(margin, y, record['name'], 'title') + 8
+        state['logo']=None
+        if Image is not None and record.get('logo_path'):
+            try:
+                from database import PROJECT_ROOT
+                from pathlib import Path
+                path=Path(record['logo_path'])
+                if not path.is_absolute():path=PROJECT_ROOT/path
+                with Image.open(path) as source:
+                    logo=source.convert('RGBA')
+                    logo.thumbnail((max(1,min(usable,540)),90),Image.Resampling.LANCZOS)
+                state['logo']=ImageTk.PhotoImage(logo)
+                canvas.create_image(margin,y,image=state['logo'],anchor='nw',tags='paint')
+                y+=logo.height+14
+            except (OSError,ValueError,TypeError):state['logo']=None
+        if state['logo'] is None:
+            y += text(margin, y, record['name'], 'title') + 8
         year = record.get('release_year')
         y += text(margin, y, subtitle if subtitle is not None else media_label + (f'  ·  {year}' if year else ''), 'label', accent) + 22
         facts, activity = section_builder(record)

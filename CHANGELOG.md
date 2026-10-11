@@ -1,3 +1,27 @@
+## Beta 1.69 — Metadata scrolling and logos
+
+Windows-tested and approved by the maintainer.
+
+- Metadata editors scroll in fixed steps, with the form handler preceding field handlers.
+- Movies, shows, books and albums support logos through Artwork Collection: set, clear, lock and relink. Details use the logo header with a title fallback.
+- Show summary logo changes apply to every saved season; individual season changes remain independent.
+- Includes all Beta 1.68 show summary, shared artwork and Get All Metadata work.
+
+## Beta 1.68 — Show summary details
+
+Windows-tested and approved by the maintainer.
+
+- Get All Metadata on Show summary looks up every saved season from one selected TVmaze/TMDB show match, with per-season field previews and optional artwork import. Existing values are unchecked by default. Missing runtimes and failed seasons are reported without guessing values; personal viewing records stay unchanged.
+
+- Cover/background choices made from Show summary apply to all saved seasons. Individual season choices remain independent. Summary artwork changes respect locks on every season.
+
+- One shared artwork collection across saved seasons, including existing covers/backgrounds. Files are reused; individual season cover/background selections remain available. Shared removal honours locks across all seasons.
+
+- Grouped shows open a summary of all saved seasons, with total episodes, runtime, watch time, price and episode progress.
+- The selector includes Show summary and individual seasons. Each season keeps its own metadata and tracking.
+- Editing from the summary offers a season chooser. Delete This Season is available only within a season.
+- Season descriptions, notes and a season breakdown appear in the summary.
+
 # Changelog
 
 ## Beta 1.67 — Games Details Style
