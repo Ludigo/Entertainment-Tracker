@@ -9,6 +9,7 @@ import queue
 import uuid
 from media_naming import clean_name
 import urllib.request
+import urllib.parse
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
@@ -46,19 +47,19 @@ def options(kind, result):
     # Remove repeated URLs, preserving provider order.
     return list(dict((url, (label, url)) for label, url in choices if url.startswith('https://')).values())
 
-def fetch(url):
-    request = urllib.request.Request(url, headers={'User-Agent':'EntertainmentTracker/1.0'})
-    with urllib.request.urlopen(request, timeout=12) as response:
+def fetch(url,game_auth=None):
+    from game_providers import open_request
+    with open_request(url,'Artwork',{'User-Agent':'EntertainmentTracker/1.75'}) as response:
         if not response.headers.get('Content-Type','').lower().startswith('image/'):
             raise ValueError('Not an image')
-        raw = response.read(12 * 1024 * 1024 + 1)
+        raw=response.read(12 * 1024 * 1024 + 1)
     if len(raw) > 12 * 1024 * 1024: raise ValueError('Image exceeds 12 MB')
     if Image is None: raise RuntimeError('Pillow is required: pip install pillow')
     with Image.open(io.BytesIO(raw)) as img:
         img.verify()
     with Image.open(io.BytesIO(raw)) as img:
         w, h = img.size
-        if w < 80 or h < 80: raise ValueError('Image is too small')
+        if min(w,h)<16 or max(w,h)<64: raise ValueError('Image is too small')
         if w * h > 60_000_000: raise ValueError('Image dimensions are too large')
         fmt = (img.format or '').upper()
     if fmt not in ('JPEG', 'PNG', 'WEBP'): raise ValueError('Unsupported image format')
@@ -138,7 +139,10 @@ def select_saved(kind, item_id, path):
     with connection:
         connection.execute(f'UPDATE {kind} SET cover_path=? WHERE id=?',(path,item_id))
 
-def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=None, all_seasons=False):
+def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=None, all_seasons=False,game_auth=None):
+    if game_auth is None:
+        from game_providers import credentials
+        game_auth=credentials()
     base_store=store
     base_select=select_saved
     def select_art(kind,ident,path):
@@ -429,7 +433,7 @@ def open_manager(parent, kind, item_id, title, accent, results=None, on_saved=No
         online_info.set(f"Loading artwork {online['index']-len(batch)+1}–{online['index']} of {len(candidates)}…")
         def work():
             from cd_artwork import download_batch
-            download_batch(batch,online['cancel'],lambda event,value:online_queue.put((event,value)) if event in ('image','done') else None)
+            download_batch(batch,online['cancel'],lambda event,value:online_queue.put((event,value)) if event in ('image','done') else None,game_auth=game_auth)
         threading.Thread(target=work,daemon=True).start()
     def poll_online():
         online['job']=None

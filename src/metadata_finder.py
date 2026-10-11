@@ -62,13 +62,16 @@ def result(source, title, subtitle='', **fields):
     return dict(source=source, title=title, subtitle=str(subtitle or ''), **fields)
 
 def providers(kind, token=''):
-    options = {'games':['Steam','Wikipedia'], 'movies':['Apple iTunes','Wikipedia'],
+    options = {'games':['Steam','SteamGridDB','IGDB','Wikipedia'], 'movies':['Apple iTunes','Wikipedia'],
                'shows':['TVmaze','Wikipedia'], 'books':['Open Library','Google Books','Wikipedia']}[kind]
     if kind in ('movies','shows'):
         options.append('TMDB')
     return options
 
-def search_provider(kind, title, provider, tmdb_token=''):
+def search_provider(kind, title, provider, tmdb_token='', game_auth=None):
+    if kind=='games' and provider in ('SteamGridDB','IGDB'):
+        from game_providers import search
+        return search(title,provider,game_auth)
     compact=''.join(title.split()).replace('-','').upper()
     isbn_query=kind=='books' and (len(compact)==13 and compact.isdecimal() or len(compact)==10 and compact[:9].isdecimal() and (compact[-1].isdigit() or compact[-1]=='X'))
     q = urllib.parse.quote('isbn:'+compact if isbn_query and provider in ('Google Books','Open Library') else title)
@@ -142,7 +145,10 @@ def search_provider(kind, title, provider, tmdb_token=''):
         return out
     raise ValueError('Unknown provider')
 
-def enrich(kind, item, tmdb_token=''):
+def enrich(kind, item, tmdb_token='', game_auth=None):
+    if kind=='games' and item.get('source') in ('SteamGridDB','IGDB'):
+        from game_providers import enrich as enrich_game
+        return enrich_game(item,game_auth)
     if item['source']=='Open Library' and item.get('detail'):
         try:
             data=get_json(item['detail']+'.json')
@@ -213,7 +219,7 @@ def current_fields(kind, item_id):
     if row is None: raise ValueError('Entry not found')
     return dict(zip(columns,row))
 
-def save_fields(kind, item_id, item, selected, all_seasons=False, season_fields=False):
+def save_fields(kind, item_id, item, selected, all_seasons=False, season_fields=False, game_auth=None):
     if kind not in FIELDS: raise ValueError('Invalid category')
     existing=current_fields(kind,item_id)
     allowed=dict(FIELDS[kind])
@@ -244,19 +250,10 @@ def save_fields(kind, item_id, item, selected, all_seasons=False, season_fields=
                 from show_series import seasons
                 for r in seasons(item_id):require_unlocked(kind,r['id'],'cover_path')
             if not str(value).startswith('https://'): raise ValueError('Cover must use HTTPS')
-            request=urllib.request.Request(value,headers=HEADERS)
-            with urllib.request.urlopen(request,timeout=15) as response:
-                mime=response.headers.get('Content-Type','').lower()
-                if not mime.startswith('image/'): raise ValueError('Cover URL did not return an image')
-                image=response.read(8*1024*1024+1)
-            if len(image)>8*1024*1024 or not image: raise ValueError('Invalid or oversized cover')
-            from PIL import Image
-            import io
-            with Image.open(io.BytesIO(image)) as picture:
-                picture.verify()
+            from artwork_manager import fetch
+            image,w,h,suffix=fetch(value,game_auth=game_auth)
             folder=PROJECT_ROOT/'assets'/'covers'/kind
             folder.mkdir(parents=True,exist_ok=True)
-            suffix='.png' if 'png' in mime else '.webp' if 'webp' in mime else '.jpg'
             cover_file=folder/f'{item_id}_multi_{uuid.uuid4().hex[:12]}{suffix}'
             cover_file.write_bytes(image)
             value=cover_file.relative_to(PROJECT_ROOT).as_posix()
@@ -274,6 +271,8 @@ def save_fields(kind, item_id, item, selected, all_seasons=False, season_fields=
     return len(updates)
 
 def open_finder(parent, kind, item_id, title, accent, on_saved=None, all_seasons=False, bulk_seasons=False):
+    from game_providers import credentials
+    game_auth=credentials() if kind=='games' else {}
     win=tk.Toplevel(parent);polish_dialog(win)
     win.title('Get All Show Metadata' if bulk_seasons else 'Multi-Source Metadata Finder');win.geometry('1000x790');win.minsize(750,610)
     win.configure(bg=BG);win.transient(parent.winfo_toplevel())
@@ -305,7 +304,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None, all_seasons
     query=tk.StringVar(value=title)
     token=tk.StringVar(value=get_setting('tmdb_token',''))
     query_entry=tk.Entry(toolbar,textvariable=query,bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT,relief='flat',font=('Arial',12));query_entry.pack(side='left',fill='x',expand=True,ipady=7)
-    status=tk.StringVar(value=('Search Steam for game details, then review fields before importing.' if kind=='games' else 'Select a source, search, then review each field before importing.'))
+    status=tk.StringVar(value=('Select a game source and review fields before importing. Configure SteamGridDB and IGDB in Settings → Game Providers.' if kind=='games' else 'Select a source, search, then review each field before importing.'))
     token_storage_error={'value':False}
     def save_token(*_):
         try:
@@ -431,7 +430,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None, all_seasons
             for i,item in enumerate(items):results.insert('','end',iid=str(i),values=(item['title'],item['subtitle'],item['source']))
             status.set(f'{len(items)} matches from {source.get()}. Choose the correct edition or title.')
         provider,auth=source.get(),token.get()
-        background(lambda:search_provider(kind,title,provider,auth),done)
+        background(lambda:search_provider(kind,title,provider,auth,game_auth=game_auth),done)
     def chosen(_=None):
         if busy['value']:return
         pending['generation']+=1
@@ -456,7 +455,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None, all_seasons
                 snapshot['_season_results']=load(snapshot,records,auth)
                 return snapshot
             background(load_all,done)
-        else:background(lambda:enrich_with_artwork(kind,snapshot,auth,season),done)
+        else:background(lambda:enrich_with_artwork(kind,snapshot,auth,season,game_auth=game_auth),done)
     results.bind('<<TreeviewSelect>>',chosen)
     def apply():
         if busy['value'] or loading['value']:status.set('Wait for the selected result to finish loading.');return
@@ -484,7 +483,7 @@ def open_finder(parent, kind, item_id, title, accent, on_saved=None, all_seasons
             status.set(f'{saved} season entries updated.' + (' Some entries failed; see details.' if errors else ''))
             if errors:messagebox.showwarning('Import Results','\n'.join(errors),parent=win)
             return
-        try:count=save_fields(kind,item_id,items[index],chosen_fields,all_seasons=all_seasons)
+        try:count=save_fields(kind,item_id,items[index],chosen_fields,all_seasons=all_seasons,game_auth=game_auth)
         except Exception as exc:messagebox.showerror('Import Failed',str(exc),parent=win);return
         if count:
             changes['saved']=True

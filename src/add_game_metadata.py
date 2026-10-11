@@ -478,11 +478,13 @@ def choose_artwork(parent,accent,available,cover,extras,on_choose,roles=None, *,
 
 
 def open_search(parent,accent,current_values,on_apply):
-    """Search existing Steam provider, review choices and stage them in the form."""
-    from metadata_finder import search_provider,enrich
+    """Search game providers, review choices and stage them in the form."""
+    from metadata_finder import search_provider,enrich,providers
     from artwork_manager import fetch,options
+    from game_providers import credentials
+    game_auth=credentials()
     form_name='Edit Game' if current_values().get('_editing') else 'Add Game'
-    win=tk.Toplevel(parent);polish_dialog(win);win.title(form_name+' — Steam Search and Review')
+    win=tk.Toplevel(parent);polish_dialog(win);win.title(form_name+' — Game Search and Review')
     win.geometry('980x760');win.minsize(750,590);win.configure(bg=BG)
     win.transient(parent.winfo_toplevel());previous_grab=win.grab_current();win.grab_set()
     state={'closed':False,'generation':0,'item':None,'cover':None,'checks':{},'photo':None,'busy':False,
@@ -501,14 +503,17 @@ def open_search(parent,accent,current_values,on_apply):
             except tk.TclError:pass
         return 'break'
     win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',close)
-    tk.Label(win,text='Find on Steam → Review → Apply to form',bg=BG,fg=TEXT,font=('Arial',17,'bold')).pack(anchor='w',padx=18,pady=(16,8))
+    tk.Label(win,text='Find metadata & artwork → Review → Apply to form',bg=BG,fg=TEXT,font=('Arial',17,'bold')).pack(anchor='w',padx=18,pady=(16,8))
     tk.Label(win,text='Changes are staged until you press Save Game in the '+form_name+' form. Manual entry remains available.',
              bg=BG,fg=MUTED,wraplength=920,justify='left').pack(anchor='w',padx=18)
     toolbar=tk.Frame(win,bg=BG);toolbar.pack(fill='x',padx=18,pady=10)
     query=tk.StringVar(value=current_values().get('name',''))
     entry=tk.Entry(toolbar,textvariable=query,bg=PANEL_ALT,fg=TEXT,insertbackground=TEXT,relief='flat')
     entry.pack(side='left',fill='x',expand=True,ipady=6)
-    status=tk.StringVar(value='Search by title, then select the correct edition.')
+    provider=tk.StringVar(value='Steam')
+    provider_box=ttk.Combobox(toolbar,textvariable=provider,values=providers('games'),state='readonly',width=16)
+    provider_box.pack(side='left',before=entry,padx=(0,8))
+    status=tk.StringVar(value='Search by title, then select the correct edition. Configure Game Providers in Settings first for SteamGridDB or IGDB.')
     tk.Label(win,textvariable=status,bg=BG,fg=MUTED,wraplength=920,justify='left').pack(fill='x',padx=18,pady=(0,8))
     results=ttk.Treeview(win,columns=('title','source'),show='headings',height=5,selectmode='browse')
     results.heading('title',text='Game');results.heading('source',text='Source')
@@ -524,7 +529,7 @@ def open_search(parent,accent,current_values,on_apply):
     canvas.bind('<Configure>',lambda event:canvas.itemconfigure(window_id,width=event.width))
     right=tk.Frame(body,bg=PANEL_ALT,width=240);right.pack(side='right',fill='y',padx=(12,0));right.pack_propagate(False)
     tk.Label(right,text='PROPOSED COVER',bg=PANEL_ALT,fg=TEXT).pack(pady=10)
-    cover_label=tk.Label(right,text='Select a Steam result.',bg=PANEL_ALT,fg=MUTED,wraplength=215)
+    cover_label=tk.Label(right,text='Select a game result.',bg=PANEL_ALT,fg=MUTED,wraplength=215)
     cover_label.pack(fill='both',expand=True,padx=8,pady=6)
     cover_label.bind('<Button-1>',lambda event:preview_cover(win,state['cover']) if state['cover'] else None)
     use_cover=tk.BooleanVar(value=False)
@@ -538,7 +543,7 @@ def open_search(parent,accent,current_values,on_apply):
     def artwork_choices():
         if state['busy']:status.set('Wait for the artwork request to finish.');return
         if not state['available'] and not state['cover'] and not state['extras'] and not any(state['roles'].values()):
-            status.set('Select a Steam result with available artwork first.');return
+            status.set('Select a result with available artwork first.');return
         def chosen(cover,extras,roles):
             show_cover(cover,bool(cover));state['extras']=extras;state['roles']=roles
             artwork_info.set(f'{len(extras)} extras · Background: '+('yes' if roles.get('background_path') else 'no')+
@@ -571,7 +576,7 @@ def open_search(parent,accent,current_values,on_apply):
     tk.Button(right,text='Choose from PC…',command=local_cover,bg=PANEL,fg=TEXT,relief='flat',padx=10,pady=6).pack(side='bottom',pady=(0,10),before=cover_label)
     def clear_review():
         for child in fields.winfo_children():child.destroy()
-        state['checks'].clear();state['item']=None;state['available']=[];show_cover(None)
+        state['checks'].clear();state['item']=None;state['available']=[];state['art_index']=0;show_cover(None)
     def review(item,available,warning=''):
         clear_review();state['item']=item
         state['available']=available
@@ -610,14 +615,15 @@ def open_search(parent,accent,current_values,on_apply):
         title=query.get().strip()
         if not title:status.set('Enter a title first.');return
         state['generation']+=1;state['busy']=True
-        results.delete(*results.get_children());items.clear();clear_review();status.set('Searching Steam…')
+        source=provider.get()
+        results.delete(*results.get_children());items.clear();clear_review();status.set('Searching '+source+'…')
         def done(value,error):
             state['busy']=False
-            if error:status.set('Steam search failed. Manual entry is still available. '+error);return
+            if error:status.set('Search failed. Manual entry is still available. '+error);return
             items.extend(value)
-            for i,item in enumerate(items):results.insert('','end',iid=str(i),values=(item['title'],'Steam'))
+            for i,item in enumerate(items):results.insert('','end',iid=str(i),values=(item['title'],item.get('source',source)))
             status.set(f'{len(items)} matches. Select the correct game, or close and enter it manually.')
-        background(lambda:search_provider('games',title,'Steam'),done)
+        background(lambda:search_provider('games',title,source,game_auth=game_auth),done)
     def selected(event=None):
         selection=results.selection()
         if not selection:return
@@ -626,9 +632,10 @@ def open_search(parent,accent,current_values,on_apply):
         state['generation']+=1;state['busy']=True;clear_review();status.set('Loading details and available artwork…')
         original=dict(items[index])
         def work():
-            item=enrich('games',original)
-            item=dict(item,name=item.get('title',''),platform='PC')
-            return item,[], 'Metadata ready. Use Load Artwork to download images separately.'
+            item=enrich('games',original,game_auth=game_auth)
+            item=dict(item,name=item.get('title',''))
+            if item.get('source')=='Steam':item['platform']='PC'
+            return item,[], (item.get('artwork_warning') or 'Metadata ready. Use Load Artwork to download images separately.')
         def done(value,error):
             state['busy']=False
             if error:status.set('Could not load details. Manual entry remains available. '+error);return
@@ -636,17 +643,19 @@ def open_search(parent,accent,current_values,on_apply):
         background(work,done)
     def load_artwork():
         if state['busy'] or not state['item']:return
-        item=dict(state['item']);state['busy']=True;status.set('Loading artwork in parallel…')
+        item=dict(state['item']);choices=options('games',item);offset=state.get('art_index',0);batch=choices[offset:offset+20]
+        if not batch:status.set('No more provider artwork available.');return
+        state['busy']=True;status.set('Loading artwork in parallel…')
         def work():
             from cd_artwork import collect_images
-            images,failed=collect_images(options('games',item),art_cancel)
+            images,failed=collect_images(batch,art_cancel,game_auth=game_auth)
             return [validated_cover(raw,label,url) for raw,w,h,ext,label,url in images],failed
         def done(value,error):
             state['busy']=False
             if error:status.set('Artwork unavailable: '+error);return
-            available,failed=value;state['available']=available
-            show_cover(available[0] if available else None,not bool(current_values().get('_cover')))
-            artwork_info.set(f'{len(available)} images available')
+            available,failed=value;state['art_index']=offset+len(batch);state['available'].extend(available)
+            if available and state['cover'] is None:show_cover(available[0],not bool(current_values().get('_cover')))
+            artwork_info.set(f"{len(state['available'])} images available")
             status.set(f'Artwork loaded · {failed} failed. Choose images, then Apply Selected to Form.')
         background(work,done)
     tk.Button(right,text='Load Artwork',command=load_artwork,bg=PANEL,fg=TEXT).pack(side='bottom',pady=5,before=cover_label)
@@ -654,7 +663,7 @@ def open_search(parent,accent,current_values,on_apply):
         if state['busy']:status.set('Wait for the current search/details request to finish.');return
         item=state['item']
         if item is None and not state['cover'] and not state['extras'] and not any(state['roles'].values()):
-            status.set('Choose a Steam result or a local cover first.');return
+            status.set('Choose a game result or a local cover first.');return
         updates={key:item[key] for key,var in state['checks'].items() if var.get()} if item else {}
         cover=state['cover'] if use_cover.get() else None
         extras_changed={image_digest(image) for image in state['extras']}!={image_digest(image) for image in current_values().get('_extras',())}
@@ -663,7 +672,7 @@ def open_search(parent,accent,current_values,on_apply):
             status.set('Tick at least one field or choose artwork to apply.');return
         on_apply(updates,cover,list(state['extras']),lock_cover.get() if cover else None,dict(state['roles']),list(state['available']))
         status.set('Selection applied to '+form_name+'. You can review another result or close this window; Save Game completes the changes.')
-    tk.Button(toolbar,text='Search Steam',command=search,bg=accent,fg='white',relief='flat',padx=12,pady=6).pack(side='left',padx=(10,0))
+    tk.Button(toolbar,text='Search',command=search,bg=accent,fg='white',relief='flat',padx=12,pady=6).pack(side='left',padx=(10,0))
     from search_shortcuts import bind_enter
     bind_enter(entry,search)
     results.bind('<<TreeviewSelect>>',selected)

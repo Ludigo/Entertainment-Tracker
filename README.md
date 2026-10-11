@@ -1,6 +1,6 @@
 # Entertainment Tracker v1.0
 
-This is the **beta development branch**. The latest Windows-tested and approved source is **Beta 1.69 — Show Summaries, Metadata & Logos**. The next candidate is **Beta 1.70**. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
+This is the **beta development branch**. The latest Windows-tested and approved build is **Beta 1.76 — Album Grouping & IGDB**. The next candidate is **Beta 1.77**. Candidate source is published here after Windows testing and approval. The stable product version is **v1.0** (legacy `v19` tag).
 
 A personal, non-commercial Windows desktop application built with Python.
 
@@ -14,9 +14,15 @@ Entertainment Tracker helps organise and track video games, movies, television s
 - CD and digital album ownership, multi-disc tracklists and listening activity
 - Artwork and cover management
 - Metadata lookup from external APIs
+- SteamGridDB game covers, backgrounds, logos and icons
+- IGDB game metadata, covers and screenshots
 - Physical and digital ownership across all libraries
 - Unified recorded game, album and book Activity History
 - Personal entertainment statistics
+- In-window Continue hub with quick episode, page and completion updates
+- Backlog picks with section, platform, genre and recorded-runtime filters
+- Monthly completion goals and dated recent additions
+- Optional album edition grouping with individual album exceptions
 
 ## TMDB Integration
 
@@ -37,6 +43,18 @@ This product uses the TMDB API but is not endorsed or certified by TMDB.
 The app creates its local `data/entertainment.db` database automatically when launched. Local databases and downloaded artwork are intentionally not included in the public repository. Keep backups of your personal library before updating the application.
 
 Optional process-based game tracking uses `psutil` (install with `python -m pip install psutil`).
+
+## Album editions
+
+**Settings → Album Editions → Group album editions** controls whether albums with matching titles and artists appear together. It is enabled by default. Turn it off to show each saved album separately. In Album Metadata, tick **Keep this album separate** for individual exceptions. Missing artists are not grouped. These preferences also apply to the edition selector and random picks; no saved albums, artwork or listening history are merged or deleted.
+
+## Game providers
+
+Open **Settings → Game Providers** to save your SteamGridDB API key and IGDB/Twitch Client ID and Client Secret locally. For IGDB, enable Twitch two-factor authentication, register a **Confidential** application, use `http://localhost` for its redirect URL and generate a Client Secret. The app obtains and renews its access token automatically. Settings includes a link to the [official setup instructions](https://api-docs.igdb.com/#account-creation).
+
+Select IGDB in the existing Games metadata finder for descriptions, platform-specific releases, genres, developers, publishers, game modes, age ratings, covers, regional cover alternatives, backgrounds and screenshots where available. Review fields before applying them. Load artwork separately and assign Cover, Background, Logo or Extra in the existing controls. SteamGridDB remains available for additional artwork, including logos and icons.
+
+IGDB access is free for non-commercial use under the Twitch Developer Service Agreement. See [IGDB documentation](https://api-docs.igdb.com/) and [SteamGridDB API documentation](https://www.steamgriddb.com/api/v2). Credentials and access tokens are not included in this distribution.
 
 ## Updating safely
 

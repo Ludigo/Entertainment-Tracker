@@ -1,9 +1,12 @@
 """Album listings group editions without merging or rewriting saved records."""
-from database import connection
+from database import connection, get_setting
 import unicodedata
 
 def key(row):
-    return tuple(' '.join(unicodedata.normalize('NFKC',str(row.get(k) or '')).split()).casefold() for k in ('artist','name'))
+    identity=tuple(' '.join(unicodedata.normalize('NFKC',str(row.get(k) or '')).split()).casefold() for k in ('artist','name'))
+    if get_setting('group_album_editions','1')!='1' or row.get('keep_separate') or not all(identity):
+        return ('record',int(row['id']))
+    return ('album',*identity)
 
 def all_records():
     cur=connection.execute('SELECT * FROM cds ORDER BY release_year,id')

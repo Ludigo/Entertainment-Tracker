@@ -1,4 +1,4 @@
-"""Preserve the original Games Edit artwork and Steam workflows in Metadata."""
+"""Preserve Games Edit artwork and provider workflows in Metadata."""
 import tkinter as tk
 from types import SimpleNamespace
 from database import get_setting
@@ -19,7 +19,7 @@ class GameArtworkStage:
         protect_cover = tk.BooleanVar(master=window, value=is_locked('games',game_id,'cover_path'))
         protect_roles = {key:tk.BooleanVar(master=window,value=is_locked('games',game_id,key))
                          for key in ('background_path','logo_path')}
-        tk.Button(parent,text='Find on Steam…',command=lambda:find_on_steam(),bg=PANEL_ALT,fg=TEXT,
+        tk.Button(parent,text='Find Game Metadata…',command=lambda:find_on_steam(),bg=PANEL_ALT,fg=TEXT,
                   relief='flat',padx=12,pady=6).pack(anchor='w',pady=(12,8))
         cover_row=tk.Frame(parent,bg=PANEL)
         cover_row.pack(fill='x',padx=15,pady=(3,6))
@@ -74,7 +74,7 @@ class GameArtworkStage:
         def review_cover():
             from add_game_metadata import preview_cover
             if pending['cover']:preview_cover(modal,pending['cover'])
-            else:messagebox.showinfo('Game Cover','Choose a cover from Steam or your PC first.')
+            else:messagebox.showinfo('Game Cover','Choose a cover from a provider or your PC first.')
         def clear_cover():
             pending['cover']=None;protect_cover.set(False);update_staged_info()
         def manual_metadata():
@@ -147,3 +147,4 @@ class GameArtworkStage:
         return (staged_signature({},self.pending['cover'],self.pending['extras'],
                                  self.protect_cover.get(),self.pending['roles']),
                 tuple((key,var.get()) for key,var in self.protect_roles.items()))
+

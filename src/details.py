@@ -1080,7 +1080,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None, show_summa
             cursor.execute('SELECT COUNT(*) FROM (SELECT id FROM game_sessions '
                            'WHERE game_id=? ORDER BY id DESC LIMIT 6)', (item_id,))
             session_count = cursor.fetchone()[0]
-            sessions_height = max(86, 48 + session_count * 26)
+            sessions_height = max(110, 65 + session_count * 26)
             height = max(sessions_y + sessions_height + 18, cinematic.winfo_height())
             cinematic.configure(scrollregion=(0, 0, width, height))
             # The single fixed page image is the source of truth.  This canvas
@@ -1284,19 +1284,19 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None, show_summa
                                   font=('Arial', 10), tags='paint')
             cinematic.create_text(42, sessions_y, text='RECENT PLAY SESSIONS',
                                   anchor='nw', fill=accent, font=('Arial', 12, 'bold'), tags='paint')
-            cinematic.create_text(width-32, sessions_y+3, text='DURATION',
+            cinematic.create_text(width-32, sessions_y+25, text='DURATION',
                                   anchor='ne', fill=MUTED, font=('Arial', 9, 'bold'), tags='paint')
             cursor.execute('SELECT started_at, duration_seconds FROM game_sessions '
                            'WHERE game_id=? ORDER BY id DESC LIMIT 6', (item_id,))
             sessions = cursor.fetchall()
             # Compact session count, without adding another divider or changing layout.
-            cinematic.create_text(231, sessions_y+3,
+            cinematic.create_text(42, sessions_y+25,
                                   text=f'({len(sessions)} shown)',
                                   anchor='nw', fill=MUTED,
                                   font=('Arial', 9), tags='paint')
             if not sessions:
-                cinematic.create_text(28, sessions_y+40,
-                                      text='No completed automatic sessions yet.',
+                cinematic.create_text(28, sessions_y+52,
+                                      text='No completed play sessions yet.',
                                       anchor='nw', fill=MUTED, tags='paint')
             for index, (started_at, seconds) in enumerate(sessions):
                 # Format dates for display only; preserve stored session timestamps.
@@ -1328,7 +1328,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None, show_summa
                     date_text = str(started_at or 'Unknown date')[:16].replace('T', ' ')
                 elapsed = max(0, int(seconds or 0))
                 duration = f'{elapsed//3600:02d}:{elapsed//60%60:02d}:{elapsed%60:02d}'
-                row_y = sessions_y + 40 + index * 26
+                row_y = sessions_y + 52 + index * 26
                 cinematic.create_text(28, row_y, text=date_text,
                                       anchor='nw', fill=TEXT, font=('Arial', 10), tags='paint')
                 cinematic.create_text(width-32, row_y, text=duration,
@@ -1412,7 +1412,7 @@ def show_detail(parent, kind, item_id, accent, on_back, on_edit=None, show_summa
                        "WHERE game_id = ? ORDER BY id DESC LIMIT 6", (item_id,))
         sessions = cursor.fetchall()
         if not sessions:
-            tk.Label(right, text="No completed automatic sessions yet.",
+            tk.Label(right, text="No completed play sessions yet.",
                      bg=PANEL, fg=MUTED).pack(anchor="w")
         for started_at, seconds in sessions:
             try:

@@ -386,6 +386,23 @@ def show_dashboard():
     finish_page()
 
 
+activity_hub_state={}
+
+def show_continue():
+    global current_page
+    current_page='Continue'
+    clear_content()
+    from activity_hub import open_hub
+    def open_item(kind,ident):
+        global current_page
+        current_page='Continue'
+        clear_content()
+        show_detail(content,kind,ident,accent,show_continue,show_summary=False if kind=='shows' else None)
+        refresh_nav();reveal_content()
+    open_hub(content,accent,open_item,activity_hub_state)
+    finish_page()
+
+
 def show_statistics():
     global current_page
     current_page='Statistics'
@@ -785,6 +802,15 @@ def show_settings():
     tk.Button(collection_panel, text="Save Section Preferences", command=apply_sections, bg=accent, fg="white", relief="flat", pady=8).pack(anchor="w", pady=8)
     tk.Label(collection_panel, textvariable=visibility_status, bg=PANEL, fg=MUTED, wraplength=360).pack(anchor="w")
 
+    album_panel=polished_panel(settings_body,padx=18,pady=12)
+    settings_panels.append(album_panel)
+    tk.Label(album_panel,text='Album Editions',font=('Arial',14,'bold'),bg=PANEL,fg=TEXT).pack(anchor='w')
+    album_help=tk.Label(album_panel,text='Group albums with the same title and artist. Turn this off to show every saved album separately. Album Metadata also has a Keep this album separate option.',bg=PANEL,fg=MUTED,wraplength=340,justify='left')
+    album_help.pack(anchor='w',pady=8);wrapping_labels.append(album_help)
+    group_albums=tk.IntVar(value=int(get_setting('group_album_editions','1')=='1'))
+    tk.Checkbutton(album_panel,text='Group album editions',variable=group_albums,bg=PANEL,fg=TEXT,selectcolor=PANEL_ALT,
+                   command=lambda:set_setting('group_album_editions','1' if group_albums.get() else '0')).pack(anchor='w')
+
     panel = polished_panel(settings_body, padx=18, pady=12)
     settings_panels.append(panel)
     tk.Label(panel, text="APPEARANCE", font=("Arial", 9, "bold"), bg=PANEL, fg=accent).pack(anchor="w", pady=(0, 4))
@@ -831,6 +857,13 @@ def show_settings():
               bg=PANEL_ALT, fg=TEXT, activebackground=accent,
               activeforeground="white", relief="flat", padx=15, pady=8,
               cursor="hand2").pack(anchor="w", pady=(8, 0))
+    game_provider_panel=polished_panel(settings_body,padx=18,pady=12)
+    settings_panels.append(game_provider_panel)
+    from game_providers import settings_panel
+    settings_panel(game_provider_panel,accent)
+    for child in game_provider_panel.winfo_children():
+        if isinstance(child,tk.Label) and int(child.cget('wraplength') or 0)>0:wrapping_labels.append(child)
+
     fan_panel = polished_panel(settings_body, padx=18, pady=12)
     settings_panels.append(fan_panel)
     tk.Label(fan_panel, text='GAME DETAIL ARTWORK', font=('Arial', 9, 'bold'),
@@ -1068,7 +1101,7 @@ tk.Label(sidebar, text="YOUR COLLECTION", font=("Arial", 8, "bold"),
          bg=PANEL, fg=MUTED).pack(anchor="w", padx=23, pady=(0, 8))
 
 for name, command in [
-    ("Dashboard", show_dashboard), ("Games", show_games), ("Movies", show_movies),
+    ("Dashboard", show_dashboard), ("Continue", show_continue), ("Games", show_games), ("Movies", show_movies),
     ("Shows", show_shows), ("Books", show_books), ("CDs", show_cds), ("History", show_history),
     ("Statistics", show_statistics), ("Settings", show_settings)
 ]:

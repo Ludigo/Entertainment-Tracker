@@ -12,9 +12,10 @@ except ImportError:
     Image = ImageTk = ImageOps = None
 
 PAGE_SIZE = 60
-CARD_WIDTH = 256
-ART_WIDTH = 252
-ART_HEIGHT = 354
+# 600 × 900 cover ratio, scaled to fit the existing library grid.
+CARD_WIDTH = 248
+ART_WIDTH = 244
+ART_HEIGHT = 364
 
 class CoverGrid(tk.Frame):
     def __init__(self, parent, kind, open_detail):
@@ -159,8 +160,13 @@ class CoverGrid(tk.Frame):
             if not path.is_file() or not path.is_relative_to(PROJECT_ROOT.resolve()):
                 return None
             with Image.open(path) as source:
-                image = (ImageOps.pad(source.convert("RGB"), (ART_WIDTH, ART_HEIGHT), color="#202329")
-                         if self.kind == "cds" else ImageOps.fit(source.convert("RGB"), (ART_WIDTH, ART_HEIGHT)))
+                # Crop to fill the fixed 600:900 frame inside its thin border.
+                size = (ART_WIDTH - 4, ART_HEIGHT - 4)
+                artwork = ImageOps.fit(ImageOps.exif_transpose(source).convert("RGBA"),
+                                       size, Image.Resampling.LANCZOS)
+                image = Image.new("RGBA", artwork.size, PANEL_ALT)
+                image.alpha_composite(artwork)
+                image = image.convert("RGB")
                 photo = ImageTk.PhotoImage(image)
                 self.photos.append(photo)
                 return photo
@@ -196,7 +202,7 @@ class CoverGrid(tk.Frame):
             photo = self._photo(cover_path)
             if photo:
                 picture = tk.Label(image_holder, image=photo, bg=PANEL_ALT,
-                                   bd=0, cursor="hand2")
+                                   bd=0, highlightthickness=0, padx=0, pady=0, cursor="hand2")
             else:
                 picture = tk.Label(image_holder, text="NO ARTWORK",
                                    bg=PANEL_ALT, fg=MUTED,

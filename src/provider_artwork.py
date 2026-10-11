@@ -2,7 +2,7 @@
 import re
 
 
-def enrich_with_artwork(kind,item,token='',season=None):
+def enrich_with_artwork(kind,item,token='',season=None,game_auth=None):
     from metadata_finder import enrich,get_json
     if item.get('source')=='TMDB' and kind in ('movies','shows'):
         from add_media_metadata import load_tmdb
@@ -10,7 +10,7 @@ def enrich_with_artwork(kind,item,token='',season=None):
         item.update({key:value for key,value in data['fields'].items() if key!='name'})
         item['artwork_options']=[('TMDB '+label,url) for label,url in data.get('image_options',[])]
         return item
-    item=enrich(kind,item,token)
+    item=enrich(kind,item,token,game_auth=game_auth)
     choices=list(item.get('artwork_options') or [])
     if item.get('source')=='Google Books':
         if re.fullmatch(r'[A-Za-z0-9_-]+',str(item.get('google_id') or '')):

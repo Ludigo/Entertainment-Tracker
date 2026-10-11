@@ -51,14 +51,14 @@ def create_item(kind, raw, stage):
     return item_id
 
 
-def provider_details(kind, item, token='', season=None):
+def provider_details(kind, item, token='', season=None, game_auth=None):
     """Metadata arrives independently of image bytes; no collection writes."""
     if item.get('source') == 'TMDB' and kind in ('movies','shows'):
         from add_media_metadata import load_tmdb
         return load_tmdb(kind, dict(item), token, season, download_artwork=False)
     from provider_artwork import enrich_with_artwork
     from artwork_manager import options
-    item = enrich_with_artwork(kind, copy.deepcopy(item), token)
+    item = enrich_with_artwork(kind, copy.deepcopy(item), token,game_auth=game_auth)
     fields = {key:item[key] for key,_,_ in FIELDS[kind] if item.get(key) is not None}
     fields['name'] = item.get('title','')
     if kind == 'games' and item.get('source') == 'Steam': fields['platform'] = 'PC'
@@ -199,6 +199,8 @@ class AddDraft:
         return self.finder
 
     def build_finder(self):
+        from game_providers import credentials
+        self.game_auth=credentials() if self.kind=='games' else {}
         from metadata_finder import providers
         from search_shortcuts import bind_enter
         top=tk.Frame(self.finder,bg=PANEL);top.pack(fill='x',padx=18,pady=14)
@@ -221,6 +223,7 @@ class AddDraft:
         if self.kind=='shows':self.season_box.pack(fill='x',padx=18,pady=5)
         self.season_box.bind('<<ComboboxSelected>>',self.select_season)
         self.finder_status=tk.StringVar(value='Search by title or ISBN barcode. Select the edition you own.' if self.kind=='books' else 'Search by title. Barcode lookup is available for books and albums; other sections support manual barcode entry.')
+        if self.kind=='games':self.finder_status.set('Choose a provider and search by title. Configure SteamGridDB and IGDB in Settings → Game Providers.')
         tk.Label(self.finder,textvariable=self.finder_status,bg=PANEL,fg=MUTED,wraplength=630,justify='left').pack(fill='x',padx=18,pady=10)
         reviewbody=tk.Frame(self.finder,bg=PANEL)
         buttons=tk.Frame(self.finder,bg=PANEL);buttons.pack(side='bottom',fill='x',padx=18,pady=6)
@@ -248,6 +251,8 @@ class AddDraft:
         source=self.item.get('source');ident=str(self.item.get('detail') or '')
         url=None
         if source=='Steam' and ident.isdecimal():url='https://store.steampowered.com/app/'+ident
+        elif source=='SteamGridDB' and ident.isdecimal():url='https://www.steamgriddb.com/game/'+ident
+        elif source=='IGDB':url=self.item.get('igdb_url') or 'https://www.igdb.com'
         elif source=='TMDB' and ident.isdecimal():url='https://www.themoviedb.org/'+('movie/' if self.kind=='movies' else 'tv/')+ident
         elif source=='Open Library' and re.fullmatch(r'https://openlibrary.org/(works|books)/[A-Za-z0-9]+',ident):url=ident
         elif source=='Google Books' and re.fullmatch(r'[A-Za-z0-9_-]+',str(self.item.get('google_id') or '')):url='https://books.google.com/books?id='+quote(self.item['google_id'])
@@ -293,7 +298,7 @@ class AddDraft:
             self.items=value
             for item in value:self.results.insert('end',item['title']+' — '+str(item.get('subtitle') or ''))
             self.status.set(f'{len(value)} results. Choose an edition to review.' if value else 'No matches. Try another query/provider or enter metadata manually.')
-        self.background(lambda:search_provider(self.kind,query,provider,token),done)
+        self.background(lambda:search_provider(self.kind,query,provider,token,game_auth=self.game_auth),done)
 
     def selected(self,event=None):
         if self.busy:return
@@ -316,7 +321,7 @@ class AddDraft:
                 self.seasons=value['seasons'];self.season_box.configure(values=[f"{s['season_number']} — {s.get('name') or 'Season'}" for s in self.seasons]);self.status.set(value.get('warning') or 'Choose a season before applying metadata.');return
             self.show_review(value)
         if key in self.details:done(copy.deepcopy(self.details[key]),None)
-        else:self.background(lambda:provider_details(self.kind,item,token,season),done)
+        else:self.background(lambda:provider_details(self.kind,item,token,season,game_auth=self.game_auth),done)
 
     def show_review(self,value):
         self.reset_review();self.proposed=value['fields'];self.options=list(dict((url,(label,url)) for label,url in value.get('image_options',[])).values());self.review_original=self.raw()
@@ -360,7 +365,7 @@ class AddDraft:
         from add_game_metadata import validated_cover
         self.status.set('Loading artwork in parallel…');self.generation+=1
         def work():
-            images,failed=collect_images(batch,self.cancel)
+            images,failed=collect_images(batch,self.cancel,game_auth=self.game_auth)
             return [validated_cover(raw,label,url) for raw,w,h,ext,label,url in images],failed
         def done(value,error):
             if error:self.status.set('Artwork unavailable: '+error);return

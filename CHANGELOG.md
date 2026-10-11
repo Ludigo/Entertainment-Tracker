@@ -1,3 +1,75 @@
+## Beta 1.76 — Album grouping preferences
+
+Windows-tested and approved by the maintainer.
+
+- Settings → Album Editions adds Group album editions, enabled by default and saved immediately. Turning it off shows each saved album separately in the library, details edition selector and random picks.
+- Album Add/Metadata has a Keep this album separate checkbox. Its saved flag isolates that album even when global grouping is enabled.
+- Matching continues to use normalized title and artist; missing artists/titles are isolated rather than grouping uncertain matches. Tracklists are not used to force matches.
+- Additive database migration defaults existing albums to normal grouping. Switching settings or flags never merges/deletes saved records, tracklists, artwork or listening history.
+- Grouping/migration/editor persistence checks pass and all 64 modules compile. Includes IGDB and approved fixed cover boxes.
+
+## Beta 1.75 — IGDB game metadata and artwork
+
+Candidate for Windows testing.
+
+- Replaces ScreenScraper in every Games Add, Edit and detail lookup flow with IGDB. Removes its Settings fields and network integration; existing local artwork remains usable.
+- Game Providers Settings now accepts IGDB/Twitch Client ID and Client Secret, with a link to setup instructions. The app obtains an access token automatically, reuses it in memory, renews it before expiry and retries authentication once after HTTP 401.
+- Search results distinguish platform editions. Metadata supports descriptions, platform-specific release dates, genres, developers, publishers, game modes and PEGI/ESRB ratings. Unknown values remain absent rather than replacing manual entries.
+- Artwork options include the cover, available regional alternatives, artwork/backgrounds and screenshots. Existing role assignment and selective metadata review remain. SteamGridDB remains available for logos, icons and other artwork.
+- Credentials are captured on the UI thread. Requests are paced below IGDB's four-per-second limit; public artwork downloads send no provider credentials. Errors remain inline in existing finders.
+- Includes the Windows-approved 1.74 fixed 600:900 cropped cover boxes and earlier Continue & Explore work.
+- All 64 modules compile. Offline integration tests cover provider replacement, platform matches, parsing, selective imports, token reuse/expiry/401 renewal, missing credentials, HTTP errors, credential-free artwork fetching and Continue regressions. Authenticated IGDB and Windows UI checks remain pending.
+
+## Beta 1.74 — Fixed 600:900 cover boxes
+
+Windows-tested and approved by the maintainer.
+
+- Restores fixed-width library cover boxes and crop-to-fill artwork as requested. Artwork uses the 600:900 ratio, displayed at 240 × 360 pixels inside its thin frame.
+- Removes variable-width cover cards and side padding. Source images remain unchanged.
+- All 64 modules compile. Includes previous provider and session-text changes; Windows appearance confirmation remains pending.
+
+## Beta 1.73 — Thin cover side borders
+
+Candidate for Windows testing.
+
+- Cover-grid side frames now follow the fitted image width, removing the wider side padding introduced by 1.72. The complete artwork remains visible, with its proportions preserved.
+- Keeps the consistent tile height and thin existing borders. No-artwork placeholders retain their usual size.
+- Image checks confirm all four artwork edges remain visible without added side padding, and all 64 modules compile. Includes all 1.71 and 1.72 work; Windows appearance confirmation remains pending.
+
+## Beta 1.72 — Full artwork in library tiles
+
+Candidate for Windows testing.
+
+- Library cover tiles now fit the entire artwork inside the box, preserving proportions and centring it on the existing dark background. Applies to games, movies, shows, books and albums.
+- Image dimensions account for the tile border so the outer cover edges remain visible. Portrait, landscape, square and tall artwork are supported; transparent images use the tile background and EXIF orientation is honoured.
+- Includes all Beta 1.71 provider and session-text changes. No source artwork files are altered.
+- Image-output checks pass for all five libraries and four cover proportions; all 64 modules compile. Windows appearance confirmation remains pending.
+
+## Beta 1.71 — Game providers and session text
+
+Candidate for Windows testing.
+
+- Recent Play Sessions now puts the count below the heading, alongside the duration column heading, with additional room for the empty state and session rows.
+- SteamGridDB and ScreenScraper appear in Games Add, Edit and detail metadata finders. Existing metadata review and artwork role selection remain available.
+- SteamGridDB offers up to 20 static images per artwork type: grids, heroes, logos and icons. Preview downloads use the existing batches and gallery; no extra provider windows are added.
+- ScreenScraper searches titles and loads selected game metadata, regional cover variants, logos and screenshots. English descriptions/genres and European names/dates/covers are preferred when available.
+- Settings → Game Providers stores a SteamGridDB key, ScreenScraper developer credentials and optional user login locally. ScreenScraper requires credentials issued for this software; a normal user account alone is insufficient.
+- Credentials are captured before background work. Saved artwork URLs omit credentials; ScreenScraper media requests attach them only to its HTTPS API host. ScreenScraper downloads are serialized to accommodate single-request accounts.
+- Narrow logos and 64-pixel icons are supported. Images remain size-limited, format-checked and stored in their original bytes.
+- Offline fixture tests cover provider routing, response parsing, missing credentials, HTTP failures, artwork downloading, selective metadata import and actual session drawing positions. Continue hub regression tests pass. Authenticated provider lookups and Windows visual checks remain pending.
+
+## Beta 1.70 — Continue & Explore
+
+Windows-tested and approved by the maintainer.
+
+- New Continue area with Continue, Pick Something, Goals and Recent Additions tabs in the main window.
+- Continue lists active games, movies, saved show seasons and books; details return to the same hub tab and selection.
+- Inline quick actions log episodes, page progress, full watches and completions. Final episodes/pages complete their season/book without adding timer hours. Undo restores progress and goal counts, with a guard against later edits.
+- Random backlog picks support section, platform, genre and available-time filters. Show seasons and album editions are grouped for fair picks; unknown lengths are handled explicitly. Wishlist and completed/played items are excluded.
+- Monthly game, episode and book goals use dated progress events from this update onward; metadata-only runtime/count changes do not become viewing events. Goal targets and errors stay in-page.
+- Recent additions show date added, purchase date and price across enabled sections. New records are dated; historical records remain date unknown.
+- All hub tabs respect collection visibility. No new popup windows are used by these features.
+
 ## Beta 1.69 — Metadata scrolling and logos
 
 Windows-tested and approved by the maintainer.

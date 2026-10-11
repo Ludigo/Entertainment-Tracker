@@ -193,6 +193,8 @@ def setup_database():
         if field not in game_fields:
             cursor.execute(f"ALTER TABLE games ADD COLUMN {field} TEXT")
     existing_cd_columns = {r[1] for r in connection.execute('PRAGMA table_info(cds)')}
+    if 'keep_separate' not in existing_cd_columns:
+        connection.execute('ALTER TABLE cds ADD COLUMN keep_separate INTEGER NOT NULL DEFAULT 0')
     for field in ('provider_source','provider_id','provider_url'):
         if field not in existing_cd_columns:
             connection.execute(f'ALTER TABLE cds ADD COLUMN {field} TEXT')
@@ -208,6 +210,9 @@ def setup_database():
         duration_seconds INTEGER NOT NULL, source TEXT NOT NULL, note TEXT DEFAULT '')""")
     from collection_tools import migrate
     migrate()
+    connection.commit()
+    from activity_data import migrate as migrate_activity
+    migrate_activity()
     connection.commit()
     from artwork_preferences import install_artwork_guards
     install_artwork_guards()
