@@ -156,7 +156,7 @@ def create_game(values, metadata=None, cover=None, extras=(), lock_cover=False, 
                 if value is not None and str(value).strip():
                     if field=='release_year':value=int(value)
                     connection.execute(f'UPDATE games SET {field}=? WHERE id=?',(value,game_id))
-            for field in ('wishlist','tags','purchase_date','purchase_shop','condition','barcode'):
+            for field in ('estimated_value','wishlist','tags','purchase_date','purchase_shop','condition','barcode'):
                 if field in metadata:connection.execute(f'UPDATE games SET {field}=? WHERE id=?',(metadata[field],game_id))
             for field in ('owned','owned_physical','owned_digital'):
                 connection.execute(f'UPDATE games SET {field}=? WHERE id=?',(int(bool(metadata.get(field))),game_id))
@@ -251,7 +251,7 @@ def update_game(game_id,values,metadata,cover,extras,roles,expected_art,locks):
             for key,value in metadata.items():
                 if key in ('owned','owned_physical','owned_digital','wishlist'):
                     connection.execute(f'UPDATE games SET {key}=? WHERE id=?',(int(bool(value)),game_id))
-                elif key in ('tags','purchase_date','purchase_shop','condition','barcode'):
+                elif key in ('estimated_value','tags','purchase_date','purchase_shop','condition','barcode'):
                     connection.execute(f'UPDATE games SET {key}=? WHERE id=?',(value,game_id))
                 elif key in METADATA_FIELDS:
                     value=None if value is None or not str(value).strip() else int(value) if key=='release_year' else value

@@ -210,6 +210,8 @@ def setup_database():
         duration_seconds INTEGER NOT NULL, source TEXT NOT NULL, note TEXT DEFAULT '')""")
     from collection_tools import migrate
     migrate()
+    from collection_manager_data import migrate as migrate_collection_manager
+    migrate_collection_manager()
     connection.commit()
     from activity_data import migrate as migrate_activity
     migrate_activity()

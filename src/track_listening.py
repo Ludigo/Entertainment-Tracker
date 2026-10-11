@@ -17,8 +17,8 @@ def log_track(item_id,disc,track,seconds=None,timer=None):
     with connection:
         cur=connection.execute('UPDATE cds SET listening_time=listening_time+? WHERE id=?',(duration/3600,item_id))
         if cur.rowcount!=1:raise ValueError('This album no longer exists.')
-        connection.execute('INSERT INTO cd_track_plays(cd_id,disc,track,title,duration_seconds,played_at) VALUES(?,?,?,?,?,?)',(item_id,disc,track,row[0],duration,end))
-        connection.execute('INSERT INTO cd_sessions(cd_id,started_at,ended_at,duration_seconds,source,note) VALUES(?,?,?,?,?,?)',(item_id,end,end,duration,'track listen',f'Disc {disc}, track {track}: {row[0]}'))
+        session=connection.execute('INSERT INTO cd_sessions(cd_id,started_at,ended_at,duration_seconds,source,note) VALUES(?,?,?,?,?,?)',(item_id,end,end,duration,'track listen',f'Disc {disc}, track {track}: {row[0]}'))
+        connection.execute('INSERT INTO cd_track_plays(cd_id,disc,track,title,duration_seconds,played_at,session_id) VALUES(?,?,?,?,?,?,?)',(item_id,disc,track,row[0],duration,end,session.lastrowid))
     return duration
 
 def open_track_listening(parent,item_id,accent,on_saved,timer=None):

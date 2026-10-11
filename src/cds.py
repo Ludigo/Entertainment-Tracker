@@ -119,7 +119,8 @@ def open_cds(parent, accent, on_open_detail=None, restore_library=False):
     table.configure(displaycolumns=('Album','Artist','Year','Ownership','Plays','Listening'))
     scrollbar=ttk.Scrollbar(listing,orient='vertical',command=table.yview);scrollbar.pack(side='right',fill='y');table.configure(yscrollcommand=scrollbar.set);table.pack(fill='both',expand=True)
     grid=CoverGrid(page,'cds',lambda ident:detail(ident))
-    summary=tk.Label(page,bg=BG,fg=MUTED);summary.pack(side='bottom',anchor='w',padx=20,pady=8)
+    summary=tk.Label(page,bg=BG,fg=MUTED,anchor='w',justify='left');summary.pack(side='bottom',fill='x',padx=20,pady=8)
+    summary.bind('<Configure>',lambda event:summary.configure(wraplength=max(200,event.width)))
     def refresh():
         library_filters.refresh_choices('cds',filters)
         for child in table.get_children():table.delete(child)
@@ -136,6 +137,8 @@ def open_cds(parent, accent, on_open_detail=None, restore_library=False):
             if r[0] not in ids:continue
             table.insert('','end',iid=str(r[0]),values=(r[0],r[1],r[2] or '',r[3] or '', 'Both' if r[4] and r[5] else 'Physical' if r[4] else 'Digital' if r[5] else 'Not owned',r[6],format_time(r[7])))
         summary.configure(text=f'{len(listings)} albums · {len(rows)} matching editions • {sum(r[6] for r in rows)} full album plays • {format_time(sum(r[7] for r in rows))} listened')
+        from collection_manager_data import values_summary
+        summary.configure(text=summary.cget('text')+'\n'+values_summary('cds',[r[0] for r in rows]))
         filters['count'].configure(text=f'{len(listings)} album listings · {len(rows)} matching editions. Open a listing to choose another edition.')
         if mode.get()=='Covers':grid.set_search('',filtered_ids=[r[0] for r in rows])
     def update_toggle():
@@ -181,7 +184,7 @@ def open_cds(parent, accent, on_open_detail=None, restore_library=False):
     from library_return import install
     from search_shortcuts import bind_enter
     bind_enter(search_adapter,refresh)
-    filter_adapter={'status':ownership,'sort':sort,'extra':filters['extra']}
+    filter_adapter={'status':ownership,'sort':sort,'extra':filters['extra'],'_preset_state':filters}
     on_open_detail=install(page,'cds',on_open_detail,grid,table,search_adapter,mode,switch,
                            lambda search='':refresh(),filter_adapter,restore=restore_library)
     return page

@@ -8,6 +8,7 @@ _contexts={}
 def install(owner,kind,on_open_detail,grid,table,search,view,switch_view,load,filters,
             extra_vars=None,restore=False):
     key=(str(owner.winfo_toplevel()),kind)
+    filters.get('_preset_state',filters)['search']=search
     state=_contexts.pop(key,None) if restore else None
     if not restore:_contexts.pop(key,None)
     variables={'status':filters['status'],'sort':filters['sort'],
@@ -54,3 +55,4 @@ def install(owner,kind,on_open_detail,grid,table,search,view,switch_view,load,fi
             for sequence in ('<Button-1>','<MouseWheel>','<Button-4>','<Button-5>','<KeyPress>'):
                 widget.bind(sequence,stop_restore,add='+')
     return open_detail if on_open_detail else None
+

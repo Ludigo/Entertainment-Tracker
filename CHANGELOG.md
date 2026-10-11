@@ -1,3 +1,20 @@
+## Beta 1.77 — Collection management
+
+Windows-tested and approved by the maintainer. Cumulative patch based on the approved 1.76 build.
+
+- Bulk editing: review and apply ownership, Games backlog, tags, condition and estimated values to selected records atomically.
+- Duplicate review: compare records side by side and retain different editions, with album separation persisted.
+- Missing metadata: filter missing covers, descriptions, years, artists/authors or backgrounds, including missing local image files.
+- Saved views: store filters, sorting and search text independently for each library.
+- Filtered CSV export: export the current collection selection with recorded estimated values.
+- Wishlist purchases: record price per item, shop, purchase date and physical/digital formats together.
+- Collection values: show recorded paid and estimated totals, plus the difference for entries with both values.
+- Custom shelves: create named shelves and assign or remove selected records without changing tags.
+- Session corrections: edit game, book and album dates, durations and notes, adjust totals by the duration difference, and update linked track listens without changing play counts.
+- Artwork review queue: retain the current record while assigning Cover, Background or Logo; reuse existing metadata and artwork finders.
+- New management controls stay in the main window. Existing image pickers and metadata dialogs remain available.
+- All 67 Python modules compile. Data and UI fixture checks cover atomic changes, stale records, purchases, filters, presets, shelves, CSV, session corrections, artwork queue navigation and existing Continue/IGDB behavior. The maintainer confirmed all features work on Windows.
+
 ## Beta 1.76 — Album grouping preferences
 
 Windows-tested and approved by the maintainer.

@@ -10,7 +10,7 @@ from database import connection
 from theme import PANEL, PANEL_ALT, TEXT, MUTED
 
 KINDS=('games','movies','shows','books','cds')
-COMMON_FIELDS=[('wishlist','On wishlist','bool'),('tags','Tags (comma-separated)','text'),
+COMMON_FIELDS=[('estimated_value','Estimated value (£)','money'),('wishlist','On wishlist','bool'),('tags','Tags (comma-separated)','text'),
                ('purchase_date','Purchase date (YYYY-MM-DD)','date'),
                ('purchase_shop','Shop / seller','text'),('condition','Condition','text')]
 
@@ -150,6 +150,10 @@ def install_tools(parent,kind,get_ids,get_selected,refresh,grid=None):
         try:menu.tk_popup(x if x is not None else parent.winfo_pointerx(),y if y is not None else parent.winfo_pointery())
         finally:menu.grab_release()
     tk.Button(tools,text='Quick Actions ▾',command=lambda:choose_record(parent,kind,get_selected(),menu_for),bg=PANEL_ALT,fg=TEXT,relief='flat',pady=7,padx=12).pack(side='left')
+    def workspace():
+        from collection_manager import open_workspace
+        open_workspace(parent,kind,get_ids(),refresh)
+    tk.Button(tools,text='Collection Tools…',command=workspace,bg=PANEL_ALT,fg=TEXT,relief='flat',pady=7,padx=12).pack(side='left',padx=5)
     tk.Button(tools,text='Export Filtered CSV…',command=export,bg=PANEL_ALT,fg=TEXT,relief='flat',pady=7,padx=12).pack(side='right')
     tk.Label(tools,textvariable=status,bg=PANEL,fg=MUTED,wraplength=460,justify='left').pack(side='left',padx=12)
     if grid is not None:grid.quick_actions=lambda ident,x,y:choose_record(parent,kind,[ident],lambda chosen:menu_for(chosen,x,y))

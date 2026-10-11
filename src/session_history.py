@@ -44,6 +44,21 @@ def show_session_history(parent, game_id, game_name, accent, on_back):
              font=("Arial", 9, "bold")).pack(side="right")
     tk.Label(page, text=game_name if game_id is not None else "History",
              bg=BG, fg=TEXT, font=("Arial", 27, "bold")).pack(anchor="w", padx=36)
+    editbar=tk.Frame(page,bg=BG);editbar.pack(fill='x',padx=36,pady=5)
+    from collection_visibility import enabled
+    categories=['games'] if game_id is not None else [k for k in ('games','books','cds') if enabled(k)]
+    edit_kind=tk.StringVar(value=categories[0] if categories else '')
+    if game_id is None:
+        from tkinter import ttk
+        ttk.Combobox(editbar,textvariable=edit_kind,values=categories,state='readonly',width=15).pack(side='left',padx=(0,8))
+    def edit_sessions():
+        kind=edit_kind.get()
+        if not kind:return
+        from collection_manager import open_workspace
+        from collection_manager_data import records
+        ids=[game_id] if game_id is not None else [r['id'] for r in records(kind)]
+        open_workspace(page,kind,ids,lambda:show_session_history(parent,game_id,game_name,accent,on_back),tab='Sessions')
+    tk.Button(editbar,text='Correct Session History…',command=edit_sessions,bg=PANEL_ALT,fg=TEXT,relief='flat',pady=6).pack(side='left')
 
     if game_id is None:
         sessions=all_activity_sessions(visible_only=True)

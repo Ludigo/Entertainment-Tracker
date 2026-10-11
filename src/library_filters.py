@@ -13,7 +13,7 @@ FIELDS = {
 }
 FIELDS['cds']=[('Artist','artist'),('Genre','genre'),('Release year','release_year')]
 for _kind in FIELDS:
- FIELDS[_kind] += [('Wishlist','_wishlist'),('Tag','tags'),('Shop / seller','purchase_shop'),('Condition','condition')]
+ FIELDS[_kind] += [('Wishlist','_wishlist'),('Tag','tags'),('Shop / seller','purchase_shop'),('Condition','condition'),('Missing metadata','_missing'),('Shelf','_shelf')]
 
 CD_SORTS=('Title','Artist','Year','Most played','Listening time')
 STATUSES = {'cds':('All','Physical','Digital','Both','Not owned'),'games':('All statuses','Backlog','Completed','Started','Not started','Not completed'),
@@ -34,7 +34,13 @@ def where_clause(kind, search, state):
   params.append('%'+search+'%')
  for field,var in state['extra'].items():
   val=var.get()
-  if field=='_wishlist' and val!='All':
+  if field=='_shelf' and val!='All':
+   query+=' AND EXISTS(SELECT 1 FROM shelf_members sm JOIN collection_shelves sh ON sh.id=sm.shelf_id WHERE sm.kind=? AND sm.item_id='+kind+'.id AND sh.name=?)';params.extend([kind,val])
+  elif field=='_missing' and val!='All':
+   background='background_path' if 'background_path' in cols else '(SELECT background_path FROM game_detail_art WHERE game_id='+kind+'.id)'
+   values=['cover_path','description','release_year','artist' if 'artist' in cols else 'NULL','author' if 'author' in cols else 'NULL',background]
+   query+=' AND collection_missing(?,?,'+','.join(values)+')=1';params.extend([kind,val])
+  elif field=='_wishlist' and val!='All':
    query+=' AND wishlist=?';params.append(int(val=='On wishlist'))
   elif field=='tags' and val!='All':
    query+=' AND collection_has_tag(tags,?)=1';params.append(val)
@@ -63,6 +69,10 @@ def where_clause(kind, search, state):
  return query,params,order
 
 def field_choices(kind,field):
+    if field=='_missing':return ['All','Any metadata','Cover','Description','Release year']+(['Artist / author'] if kind in ('cds','books') else [])+['Background']
+    if field=='_shelf':
+        from collection_manager_data import shelves
+        return ['All']+[name for ident,name in shelves()]
     if field=='_wishlist':return ['All','On wishlist','Not on wishlist']
     if field=='tags':
         from collection_tools import tag_choices
@@ -125,7 +135,7 @@ def build_filters(parent, kind, refresh):
         state['extra']['_ownership']=state['ownership']
     index = 0 if kind=='cds' else 1
     for label, field in FIELDS[kind]:
-        if field not in available and field!='_wishlist':
+        if field not in available and field not in ('_wishlist','_missing','_shelf'):
             continue
         choices=field_choices(kind,field)
         cell = tk.Frame(advanced, bg=PANEL)
@@ -179,5 +189,7 @@ def build_filters(parent, kind, refresh):
                      font=('Arial', 9))
     count.pack(anchor='w')
     state['count'] = count
+    from collection_presets import install
+    install(footer,kind,state,refresh)
     return state
 
